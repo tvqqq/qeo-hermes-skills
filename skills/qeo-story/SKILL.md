@@ -1,7 +1,7 @@
 ---
 name: qeo-story
 description: Beautify screenshots as Qeo story images.
-version: 1.0.0
+version: 1.1.0
 author: QeoQeo
 metadata:
   hermes:

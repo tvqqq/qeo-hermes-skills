@@ -48,6 +48,33 @@ class StoryRendererTests(unittest.TestCase):
                 self.assertEqual(image.format, "PNG")
                 self.assertEqual(image.size, (1080, 1920))
 
+    def test_qeobench_style_defaults(self):
+        options = self.renderer.StoryRenderOptions()
+        self.assertEqual(options.safe_margin, 132)
+        self.assertEqual(options.card_radius, 34)
+        self.assertEqual(options.shadow_intensity, 50)
+        self.assertEqual(options.shadow_angle, 135)
+        self.assertEqual(options.shadow_offset, 10)
+        self.assertEqual(options.shadow_blur, 34)
+
+    def test_screenshot_is_direct_rounded_card_with_raised_shadow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.png"
+            output = Path(tmp) / "story.png"
+            Image.new("RGB", (640, 640), "black").save(source)
+            self.renderer.render_story(source, output)
+
+            with Image.open(output) as image:
+                rendered = image.convert("RGB")
+                self.assertFalse(all(channel > 245 for channel in rendered.getpixel((100, 900))))
+                self.assertEqual(rendered.getpixel((540, 900)), (0, 0, 0))
+                self.assertNotEqual(rendered.getpixel((132, 492)), (0, 0, 0))
+                preset = self.presets.get_preset("qeo-green")
+                background = self.renderer.make_diagonal_gradient((1080, 1920), preset.start, preset.end)
+                bg_pixel = background.getpixel((125, 1315))
+                shadow_pixel = rendered.getpixel((125, 1315))
+                self.assertGreater(sum(bg_pixel) - sum(shadow_pixel), 15)
+
     def test_presets_match_approved_set(self):
         self.assertEqual(
             set(self.presets.PRESETS),

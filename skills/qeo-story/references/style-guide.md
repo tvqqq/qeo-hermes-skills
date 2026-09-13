@@ -18,28 +18,27 @@ The approved reference uses a diagonal green field. The standalone renderer appr
 - Top-right: `#249D71`
 - The other two corners naturally blend near the midpoint.
 
-## Card
+## Screenshot card
 
-- White `#FFFFFF`.
-- Maximum width: canvas width minus 84 px safe margin on each side.
+- The source image itself is the card; there is no separate white wrapper or internal padding.
+- Maximum width: canvas width minus 132 px safe margin on each side.
 - Maximum height: 1480 px.
-- Internal padding: 46 px.
 - Corner radius: 34 px.
-- Soft black shadow: slight down/right offset, broad blur, low opacity.
+- QeoBench-style soft black shadow: 50% intensity, 135° angle, 10 px offset, 34 px blur.
+- A subtle 2 px white edge at low opacity keeps dark screenshots crisp against the gradient.
 - Source image keeps its full aspect ratio and is never cropped by default.
-- Source image gets a subtle 18 px clip radius.
 
 ## Vertical composition
 
-- Card visual center: approximately y=900 px.
-- Card top never rises above ~110 px.
-- Card bottom stays at or above ~1650 px.
+- Screenshot visual center: approximately y=900 px.
+- Screenshot top never rises above ~110 px.
+- Screenshot bottom stays at or above ~1650 px.
 - This leaves a dedicated lower zone for copyright and story UI breathing room.
 
 ## Copyright
 
 - Text: `@QeoQeo` by default.
-- Position: lower-right, aligned to the same 84 px horizontal safe margin.
+- Position: lower-right, aligned to the same 132 px horizontal safe margin.
 - Bottom breathing room: ~132 px.
 - Bold white text with a soft dark shadow for contrast.
 
