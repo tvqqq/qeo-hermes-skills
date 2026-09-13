@@ -20,6 +20,7 @@ class DeployScriptTests(unittest.TestCase):
         (self.home / "skills" / "qeo-story" / "old.txt").write_text("default-old")
         for profile in ("qeo-personal", "qeo-stock"):
             (self.home / "profiles" / profile / "skills").mkdir(parents=True)
+        (self.home / "profiles" / ".deleted").mkdir(parents=True)
         personal = self.home / "profiles" / "qeo-personal" / "skills" / "qeo-story"
         personal.mkdir()
         (personal / "old.txt").write_text("personal-old")
@@ -53,6 +54,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertTrue((self.home / "skills/qeo-story/SKILL.md").exists())
         self.assertTrue((self.home / "profiles/qeo-personal/skills/qeo-story/SKILL.md").exists())
         self.assertTrue((self.home / "profiles/qeo-stock/skills/qeo-story/SKILL.md").exists())
+        self.assertFalse((self.home / "profiles/.deleted/skills/qeo-story").exists())
         backup = self.latest_backup()
         self.assertEqual((backup / "skills/qeo-story/old.txt").read_text(), "default-old")
         self.assertEqual(

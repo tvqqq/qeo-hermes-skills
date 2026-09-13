@@ -56,7 +56,7 @@ if [[ "$PROFILES" == "all" ]]; then
   if [[ -d "$HERMES_HOME_VALUE/profiles" ]]; then
     while IFS= read -r dir; do
       selected_profiles+=("$(basename "$dir")")
-    done < <(find "$HERMES_HOME_VALUE/profiles" -mindepth 1 -maxdepth 1 -type d | sort)
+    done < <(find "$HERMES_HOME_VALUE/profiles" -mindepth 1 -maxdepth 1 -type d ! -name ".*" | sort)
   fi
 else
   IFS=',' read -r -a selected_profiles <<< "$PROFILES"

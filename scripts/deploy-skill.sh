@@ -64,7 +64,7 @@ if [[ "$PROFILES" == "all" ]]; then
   if [[ -d "$HERMES_HOME_VALUE/profiles" ]]; then
     while IFS= read -r profile_dir; do
       add_profile_target "$(basename "$profile_dir")"
-    done < <(find "$HERMES_HOME_VALUE/profiles" -mindepth 1 -maxdepth 1 -type d | sort)
+    done < <(find "$HERMES_HOME_VALUE/profiles" -mindepth 1 -maxdepth 1 -type d ! -name ".*" | sort)
   fi
 elif [[ -n "$PROFILES" ]]; then
   IFS=',' read -r -a REQUESTED_PROFILES <<< "$PROFILES"
