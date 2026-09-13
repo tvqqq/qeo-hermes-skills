@@ -29,7 +29,7 @@ class FakeEngine:
     def __init__(self):
         self.ready = True
         self.registry = SimpleNamespace(default_slug="chi-chi")
-        self.action = lambda text, voice: b"RIFFfake-wav"
+        self.action = lambda text, voice: b"OggSfake-opus"
 
     def synthesize(self, text, voice=None):
         return self.action(text, voice)
@@ -74,13 +74,13 @@ class QeoVoiceWorkerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"error": "invalid_text"})
 
-    def test_success_returns_wav_bytes(self):
+    def test_success_returns_ogg_opus_bytes(self):
         response = self.client().post(
             "/v1/tts", headers=self.auth, json={"text": "Xin chào", "voice": "chi-chi"}
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["content-type"], "audio/wav")
-        self.assertEqual(response.content, b"RIFFfake-wav")
+        self.assertEqual(response.headers["content-type"], "audio/ogg")
+        self.assertEqual(response.content, b"OggSfake-opus")
 
     def test_unknown_busy_and_synthesis_errors_are_mapped(self):
         engine = FakeEngine()

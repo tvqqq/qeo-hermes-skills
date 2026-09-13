@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -30,6 +31,25 @@ def _default_wav_encoder(audio: Any) -> bytes:
     return buffer.getvalue()
 
 
+def _encode_ogg_opus(
+    audio: Any,
+    *,
+    wav_encoder: Callable[[Any], bytes] = _default_wav_encoder,
+    runner: Callable[..., Any] = subprocess.run,
+) -> bytes:
+    wav_bytes = wav_encoder(audio)
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-f", "wav", "-i", "pipe:0", "-vn",
+        "-c:a", "libopus", "-b:a", "64k", "-vbr", "on",
+        "-application", "voip", "-f", "ogg", "pipe:1",
+    ]
+    result = runner(command, input=wav_bytes, capture_output=True)
+    if result.returncode != 0 or not result.stdout:
+        raise VoiceSynthesisError("Failed to encode OGG/Opus audio")
+    return result.stdout
+
+
 class VieNeuVoiceEngine:
     def __init__(
         self,
@@ -40,7 +60,7 @@ class VieNeuVoiceEngine:
     ) -> None:
         self.registry = registry
         self._backend_factory = backend_factory or _default_backend_factory
-        self._wav_encoder = wav_encoder or _default_wav_encoder
+        self._wav_encoder = wav_encoder or _encode_ogg_opus
         self._backend: Any | None = None
         self._ready = False
         self._lock = threading.Lock()

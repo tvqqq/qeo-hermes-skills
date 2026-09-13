@@ -53,7 +53,7 @@ def create_app(engine: Any, token: str) -> FastAPI:
             return JSONResponse(status_code=503, content={"error": "busy"})
         except VoiceSynthesisError:
             return JSONResponse(status_code=500, content={"error": "synthesis_failed"})
-        return Response(content=audio, media_type="audio/wav")
+        return Response(content=audio, media_type="audio/ogg")
 
     return app
 

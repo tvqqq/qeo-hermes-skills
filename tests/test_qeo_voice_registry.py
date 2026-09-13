@@ -198,3 +198,32 @@ class QeoVoiceEngineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QeoVoiceOpusEncoderTests(unittest.TestCase):
+    def test_encoder_uses_ffmpeg_libopus_and_returns_ogg_bytes(self):
+        if str(WORKER) not in sys.path:
+            sys.path.insert(0, str(WORKER))
+        load_worker_module("registry", "registry.py")
+        engine_mod = load_worker_module("qeo_voice_engine_opus", "engine.py")
+        calls = []
+
+        class Result:
+            returncode = 0
+            stdout = b"OggSopus"
+            stderr = b""
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return Result()
+
+        output = engine_mod._encode_ogg_opus(
+            [0.0],
+            wav_encoder=lambda audio: b"RIFFpcm",
+            runner=runner,
+        )
+        self.assertEqual(output, b"OggSopus")
+        command, kwargs = calls[0]
+        self.assertEqual(command[0], "ffmpeg")
+        self.assertIn("libopus", command)
+        self.assertEqual(kwargs["input"], b"RIFFpcm")
