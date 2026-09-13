@@ -1,0 +1,5 @@
+name: qeo-shortcuts
+version: 1.0.1
+description: Telegram shortcuts for Qeo custom skills
+provides_hooks:
+  - pre_gateway_dispatch
