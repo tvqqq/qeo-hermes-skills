@@ -8,7 +8,7 @@ Status: Approved design, pending implementation plan
 
 `qeo-hermes-skills` is the canonical source of truth for Qeo-owned Hermes Agent skills, gateway integrations, deployment scripts, and operational documentation.
 
-The repository replaces ad-hoc editing on the `qeo-upcloud` Hermes server. Production copies under `/opt/hermes/data` are deployment artifacts and must not be treated as source code.
+The repository replaces ad-hoc editing on the `qeo-upcloud` Hermes server. Production copies under the Hermes data directory are deployment artifacts and must not be treated as source code.
 
 Primary flow:
 
@@ -64,6 +64,17 @@ qeo-hermes-skills/
 
 The layout is intentionally shallow. Skills own skill-specific code and references. Gateway integrations live in `plugins/`. Repository-level operational scripts live in `scripts/`.
 
+## Script Responsibilities
+
+The repository scripts have non-overlapping responsibilities:
+
+- `scripts/install.sh`: first-time bootstrap for a server. It checks the expected Hermes runtime, installs repository-managed plugin files and required dependencies, then delegates deployment to `deploy.sh`. It is safe to rerun.
+- `scripts/deploy-skill.sh`: deploys exactly one `skills/qeo-*` package to the default profile plus the selected multiplex profiles. It does not restart the gateway by itself.
+- `scripts/deploy.sh`: top-level production orchestrator. It validates source, creates backups, deploys requested skills/plugins, runs verification, and performs at most one normal gateway restart for the deployment.
+- `scripts/verify.sh`: read-only validation of source and deployed state. It never modifies skill/plugin source and never restarts the gateway.
+
+Helpers may be added later only when duplication becomes real; the initial implementation should not introduce a separate framework for these scripts.
+
 ## Naming Contract
 
 Every Qeo-owned Hermes skill must use:
@@ -116,7 +127,18 @@ A skill may ship scripts for deterministic work such as rendering, conversion, o
 
 Use `qeo-shortcuts` when a Telegram command should execute deterministic local behavior without requiring an LLM turn or session toolset. Typical examples are media transforms where the gateway already has the attachment path.
 
-The native path should process the inbound event, call the local implementation, send the result through the platform adapter, and skip the normal agent turn after handling the request.
+The native path processes the inbound event, calls the local implementation, sends the result through the platform adapter, and skips the normal agent turn after handling the request.
+
+## Runtime Path Contract
+
+Hermes runtime code must resolve its data root in this order:
+
+1. `HERMES_HOME` environment variable when set;
+2. `/opt/hermes/data` as the production fallback.
+
+Deployment scripts expose the same root as an explicit option/environment override and default to `/opt/hermes/data` on `qeo-upcloud`.
+
+Skill/plugin runtime code must not hardcode individual profile names, chat IDs, bot tokens, or other account-specific identifiers.
 
 ## qeo-shortcuts Plugin Design
 
@@ -136,6 +158,7 @@ The `/qeostory` flow is:
 Telegram image + /qeostory [preset]
 -> pre_gateway_dispatch
 -> resolve current attachment path
+-> resolve current profile's qeo-story package from HERMES_HOME
 -> invoke qeo-story renderer locally
 -> validate PNG 1080x1920
 -> send_image_file to the same Telegram conversation/topic
@@ -175,7 +198,7 @@ Supported presets initially remain:
 - `stellar`
 - `midnight-city`
 
-The migrated `SKILL.md` must be updated to describe the actual runtime behavior. It must not claim that `/qeostory` requires an agent terminal tool or that Telegram output depends on `MEDIA:`. Manual script execution can remain documented as a fallback for non-gateway use.
+The migrated `SKILL.md` must be updated to describe the actual runtime behavior. It must not claim that `/qeostory` requires an agent terminal tool or that Telegram output depends on `MEDIA:`. Manual script execution remains documented as a fallback for non-gateway use.
 
 ## Deployment Contract
 
@@ -190,9 +213,9 @@ Default Hermes root:
 Deployment targets:
 
 ```text
-/opt/hermes/data/skills/qeo-<name>
-/opt/hermes/data/profiles/<profile>/skills/qeo-<name>
-/opt/hermes/data/plugins/qeo-*
+$HERMES_HOME/skills/qeo-<name>
+$HERMES_HOME/profiles/<profile>/skills/qeo-<name>
+$HERMES_HOME/plugins/qeo-*
 ```
 
 The default profile receives the skill. Multiplex profiles are selected with a deployment option.
@@ -204,16 +227,16 @@ Supported profile selectors:
 --profiles qeo-personal,qeo-stock
 ```
 
-`--profiles all` discovers profile directories under `/opt/hermes/data/profiles/`; profile names are not hardcoded in the public repository.
+`--profiles all` discovers profile directories under `$HERMES_HOME/profiles/`; profile names are not hardcoded in the public repository.
 
 A normal deployment lifecycle is:
 
 ```text
 validate source
 -> create timestamped backup of affected production targets
--> stage new files in a temporary location
+-> stage new files on the same filesystem
 -> validate staged files
--> atomically replace production targets
+-> replace production targets
 -> set hermes:hermes ownership
 -> install required runtime dependencies when needed
 -> validate Hermes discovery/plugin registration
@@ -221,7 +244,7 @@ validate source
 -> verify gateway health
 ```
 
-Production source must not be edited manually after deployment. If production differs from GitHub, redeploy the repository version or make the intended change in GitHub first.
+Replacement must be implemented so a failed validation never leaves a partially copied target. Production source must not be edited manually after deployment. If production differs from GitHub, redeploy the repository version or make the intended change in GitHub first.
 
 ## Verification Gates
 
@@ -261,7 +284,7 @@ A Telegram-facing media skill is not considered fully verified until its command
 Before replacing any existing production target, deployment creates a timestamped backup under:
 
 ```text
-/opt/hermes/data/backups/qeo-hermes-skills/<timestamp>/
+$HERMES_HOME/backups/qeo-hermes-skills/<timestamp>/
 ```
 
 The backup preserves affected skills and plugins only.
@@ -271,7 +294,7 @@ If post-deployment validation fails:
 - restore changed targets from the backup;
 - remove newly introduced targets that did not exist before deployment;
 - restore ownership;
-- restart the gateway once more;
+- restart the gateway once more only when the failed deployment had already restarted or changed runtime-loaded plugin/skill state;
 - report rollback status clearly.
 
 Rollback must not overwrite unrelated Hermes configuration or unrelated skills/plugins.
@@ -287,7 +310,7 @@ The repository is public and must never contain:
 - private access tokens
 - user/chat-specific secrets
 
-Environment-specific values use environment variables or existing Hermes configuration. Public deployment scripts may contain stable filesystem conventions such as `/opt/hermes/data` when they are intentional defaults, but must allow an explicit override where practical.
+Environment-specific values use environment variables or existing Hermes configuration. Public deployment scripts may contain `/opt/hermes/data` as the intentional production default, while `HERMES_HOME` or an explicit deployment option overrides it.
 
 ## Documentation Contract
 
@@ -310,7 +333,7 @@ Acts as the primary playbook for future skills:
 
 ### docs/DEPLOYMENT.md
 
-Documents server paths, default and multiplex profile behavior, backup lifecycle, deployment commands, verification, and rollback.
+Documents server paths, `HERMES_HOME`, script responsibilities, default and multiplex profile behavior, backup lifecycle, deployment commands, verification, and rollback.
 
 ### docs/TELEGRAM-COMMANDS.md
 
@@ -328,7 +351,7 @@ It also explains when a native fast-path belongs in `qeo-shortcuts` instead of a
 The first implementation contains only:
 
 - `qeo-story` source migrated from the working VPS implementation;
-- `qeo-shortcuts` with the working `/qeostory` native flow, refactored into a handler module;
+- `qeo-shortcuts` with the working `/qeostory` native flow, refactored into a handler module and changed to resolve `HERMES_HOME` rather than a fixed data path;
 - repository deployment and verification scripts;
 - repository and operational documentation.
 
@@ -341,9 +364,10 @@ Implementation is complete when all of the following are true:
 - The repository contains the approved structure and documentation.
 - `qeo-story` source in GitHub reproduces the working renderer behavior.
 - `/qeostory` works without enabling terminal/code tools for the routed Hermes profile.
+- Runtime code resolves the Hermes data root through `HERMES_HOME` with `/opt/hermes/data` as the production fallback.
 - The deploy script installs `qeo-story` into the default profile and selected multiplex profiles.
 - `qeo-shortcuts` can be installed/enabled from repository source.
 - Static, runtime, discovery, and gateway-health checks are automated by repository scripts where practical.
 - Failed deployment validation can restore the previous affected skill/plugin copies without touching unrelated Hermes state.
-- No secrets or chat-specific identifiers are committed.
+- No secrets, profile names, or chat-specific identifiers are hardcoded where runtime discovery/configuration should supply them.
 - GitHub is documented as the only canonical source for Qeo-owned Hermes skill code.
