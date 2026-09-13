@@ -105,6 +105,44 @@ class DeployScriptTests(unittest.TestCase):
         self.assertEqual((plugin / "old.txt").read_text(), "plugin-old")
         self.assertFalse((plugin / "plugin.yaml").exists())
 
+    def test_dependency_install_uses_deployed_requirements(self):
+        marker = Path(self.tmp.name) / "pip-args.txt"
+        fake_python = Path(self.tmp.name) / "fake-python.sh"
+        fake_python.write_text(
+            f'#!/bin/sh\nprintf "%s\n" "$*" > "{marker}"\n'
+        )
+        fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
+
+        result = self.run_script(
+            "deploy.sh", "qeo-story",
+            "--hermes-home", str(self.home), "--profiles", "all", "--no-restart",
+            env={"HERMES_PYTHON": str(fake_python), "QEO_VERIFY_COMMAND": "true"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(
+            f"-r {self.home / 'skills/qeo-story/requirements.txt'}",
+            marker.read_text(),
+        )
+
+    def test_dependency_install_failure_restores_skill_and_plugin(self):
+        plugin = self.home / "plugins" / "qeo-shortcuts"
+        plugin.mkdir(parents=True)
+        (plugin / "old.txt").write_text("plugin-old")
+        fake_python = Path(self.tmp.name) / "failing-python.sh"
+        fake_python.write_text("#!/bin/sh\nexit 7\n")
+        fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
+
+        result = self.run_script(
+            "deploy.sh", "qeo-story",
+            "--hermes-home", str(self.home), "--profiles", "all", "--no-restart",
+            env={"HERMES_PYTHON": str(fake_python)}, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.home / "skills/qeo-story/old.txt").read_text(), "default-old")
+        self.assertFalse((self.home / "skills/qeo-story/SKILL.md").exists())
+        self.assertEqual((plugin / "old.txt").read_text(), "plugin-old")
+        self.assertFalse((plugin / "plugin.yaml").exists())
+
     def test_install_is_thin_wrapper_over_deploy(self):
         marker = Path(self.tmp.name) / "deploy-args.txt"
         fake = Path(self.tmp.name) / "fake-deploy.sh"

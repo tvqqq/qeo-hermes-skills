@@ -103,13 +103,21 @@ QEO_BACKUP_ROOT="$BACKUP_ROOT" QEO_DEPLOY_OWNER="$OWNER" \
   "$SCRIPT_DIR/deploy-skill.sh" "$SKILL" \
   --hermes-home "$HERMES_HOME_VALUE" --profiles "$PROFILES"
 
-REQ="$REPO_ROOT/skills/$SKILL/requirements.txt"
+REQ="$HERMES_HOME_VALUE/skills/$SKILL/requirements.txt"
 HERMES_PYTHON_VALUE="${HERMES_PYTHON:-}"
 if [[ -z "$HERMES_PYTHON_VALUE" && -x "$HERMES_HOME_VALUE/hermes-agent/venv/bin/python" ]]; then
   HERMES_PYTHON_VALUE="$HERMES_HOME_VALUE/hermes-agent/venv/bin/python"
 fi
 if [[ -n "$HERMES_PYTHON_VALUE" && -f "$REQ" ]]; then
+  set +e
   runtime_exec "$HERMES_PYTHON_VALUE" -m pip install -r "$REQ"
+  DEP_STATUS=$?
+  set -e
+  if [[ "$DEP_STATUS" -ne 0 ]]; then
+    echo "Dependency installation failed; restoring backup" >&2
+    restore_backup
+    exit "$DEP_STATUS"
+  fi
 fi
 
 set +e
