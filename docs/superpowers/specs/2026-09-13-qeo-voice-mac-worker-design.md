@@ -179,16 +179,17 @@ At startup it:
 
 The worker keeps the model resident to avoid per-request model initialization cost.
 
-Inference is serialized in v1. A process-wide lock allows one active synthesis at a time. Concurrent requests receive deterministic queueing or a busy response rather than parallel model loads.
+Inference is serialized in v1. A process-wide non-blocking synthesis lock allows exactly one active generation. A second concurrent synthesis request receives `503 busy` immediately; the worker never starts a second model instance and does not maintain an unbounded request queue.
 
 ## Worker API Contract
 
-The worker exposes only the minimum API.
+The worker exposes only the minimum API. Both endpoints require the same bearer token.
 
 ### Health
 
 ```http
 GET /health
+Authorization: Bearer <QEO_VOICE_TOKEN>
 ```
 
 Healthy response:
@@ -201,7 +202,7 @@ Healthy response:
 }
 ```
 
-Health returns non-2xx while the model or default voice is unavailable.
+Health returns non-2xx while the model or default voice is unavailable. It is used by deployment/operations checks, not as a mandatory extra round trip before every Telegram synthesis.
 
 ### Synthesize
 
@@ -229,7 +230,7 @@ Content-Type: audio/wav
 
 The body is the generated WAV bytes.
 
-Validation errors use 4xx. Worker/model failures use 5xx. Error responses are JSON and never contain secrets or internal stack traces.
+Validation errors use 4xx. A concurrent generation returns `503` with a machine-readable `busy` error. Worker/model failures use 5xx. Error responses are JSON and never contain secrets or internal stack traces.
 
 ## Connectivity and Security
 
@@ -251,9 +252,11 @@ QEO_VOICE_TOKEN
 QEO_VOICE_TIMEOUT_SECONDS
 ```
 
-The Mac worker receives the matching token from its private environment.
+`QEO_VOICE_TIMEOUT_SECONDS` defaults to 90 seconds when unset.
 
-The HTTP worker must not intentionally bind to a public Internet interface. Deployment must verify that the configured endpoint is reachable from UpCloud over Tailscale before enabling `/qeovoice`.
+The Mac worker receives the matching token from its private environment. `scripts/deploy-voice-worker.sh` resolves the current Mac Tailscale IPv4 with `tailscale ip -4` unless an explicit private bind host is supplied, and writes that value only into the generated local LaunchAgent configuration. The worker binds to that private address, not `0.0.0.0` and not a public Internet interface.
+
+Deployment must verify that the configured endpoint is reachable from UpCloud over Tailscale before enabling `/qeovoice`.
 
 ## Telegram Native Fast Path
 
@@ -265,15 +268,15 @@ Flow:
 Telegram /qeovoice <text>
 -> pre_gateway_dispatch
 -> validate non-empty text
--> call Mac worker /health or synth endpoint through configured private URL
+-> POST directly to Mac worker /v1/tts through configured private URL
 -> receive WAV bytes
--> write a bounded temporary file under HERMES_HOME audio cache
--> send through Telegram adapter as a native voice message
--> clean up according to cache policy
+-> write a bounded temporary file under HERMES_HOME/audio_cache/qeovoice
+-> await Telegram adapter send_voice for the same conversation/topic
+-> delete the temporary file after send completes
 -> skip normal LLM dispatch
 ```
 
-This path is deterministic and does not require an LLM turn.
+This path is deterministic and does not require an LLM turn. Runtime requests do not perform a separate `/health` request; connection failures and request timeouts are classified directly by the synthesis call.
 
 The handler must register only the public Telegram shortcut `qeovoice` for the first version. The canonical Hermes skill remains available separately as `qeo-voice` through Hermes skill discovery.
 
@@ -281,10 +284,16 @@ The handler must register only the public Telegram shortcut `qeovoice` for the f
 
 User-facing failure behavior is intentionally simple.
 
-When the Mac cannot be reached, the health check fails, the connection is refused, Tailscale routing fails, or synthesis exceeds the configured timeout, return:
+When the Mac cannot be reached, the connection is refused, Tailscale routing fails, or synthesis exceeds the configured timeout, return:
 
 ```text
 ⚠️ Qeo Voice unavailable — Mac mini voice worker is offline.
+```
+
+When the worker returns `503 busy`, return:
+
+```text
+⚠️ Qeo Voice is busy. Please try again in a moment.
 ```
 
 When the Mac worker responds but synthesis fails internally, return:
@@ -355,12 +364,14 @@ Responsibilities:
 - install pinned worker dependencies;
 - deploy worker source from the Git checkout;
 - validate the configured private voice asset directory;
-- install/update a launchd job from the repository template;
-- start/restart the worker;
-- wait for `/health` success;
+- resolve the private Tailscale IPv4 unless explicitly configured;
+- install/update `~/Library/LaunchAgents/com.qeo.voice.plist` from the repository template;
+- configure `RunAtLoad=true` and `KeepAlive=true`;
+- start/restart the LaunchAgent;
+- wait for authenticated `/health` success;
 - never copy private reference audio into Git-tracked paths.
 
-The launchd service restarts the worker after crashes and starts it after Mac login/boot according to the chosen service scope.
+The v1 service is a per-user LaunchAgent. It starts when the Mac user session is active and restarts after crashes. If the Mac is rebooted but no user session is logged in, the worker is considered offline and `/qeovoice` follows the normal offline behavior.
 
 ## UpCloud Deployment Contract
 
@@ -378,7 +389,7 @@ It does not install:
 - a Qeo Voice Python virtual environment;
 - any local fallback synthesizer.
 
-Any experimental VieNeu/Nano artifacts previously placed on UpCloud are removed as part of the migration after the Mac worker passes health and synthesis verification.
+Any experimental VieNeu/Nano artifacts previously placed on UpCloud are removed as part of the migration only after the Mac worker passes authenticated health and synthesis verification from UpCloud.
 
 ## Verification Gates
 
@@ -397,10 +408,10 @@ Tests cover:
 - registry loading;
 - missing reference asset failure;
 - unknown voice rejection;
-- auth rejection;
+- auth rejection on both endpoints;
 - health state before and after readiness;
 - synthesis success with the engine mocked;
-- inference serialization/busy behavior;
+- concurrent inference returns `503 busy` without loading another engine;
 - error responses without stack traces.
 
 Tests must not download live VieNeu models.
@@ -411,15 +422,16 @@ Tests cover:
 
 - `/qeovoice <text>` recognition;
 - empty text usage response;
-- successful WAV response sent as a voice message;
-- worker offline/timeout returns the exact offline alert;
+- successful WAV response sent through `send_voice`;
+- worker connection failure/timeout returns the exact offline alert;
+- worker `503 busy` returns the busy alert;
 - worker 5xx returns the generation-failed alert;
 - no code path invokes Hermes TTS or a local UpCloud TTS engine.
 
 ### Mac production smoke
 
-- launchd job is running;
-- `/health` returns `status=ok`;
+- LaunchAgent is running;
+- authenticated `/health` returns `status=ok`;
 - Chi Chi synthesis produces a valid mono WAV;
 - repeated requests reuse the resident worker process.
 
@@ -437,8 +449,8 @@ A second smoke test temporarily stops or makes the Mac worker unreachable and ve
 
 ## Operational Limits
 
-- v1 processes one synthesis at a time.
-- Worker availability depends on the Mac mini being online, Tailscale connected, and the worker healthy.
+- v1 processes one synthesis at a time and rejects overlap with `503 busy`.
+- Worker availability depends on the Mac mini being online, the user LaunchAgent being active, Tailscale connected, and the worker healthy.
 - UpCloud intentionally cannot synthesize voice when the Mac is offline.
 - Reference quality currently limits clone fidelity; replacing the private Chi Chi sample with a better 5–8 second sample is allowed without code changes.
 
