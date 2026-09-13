@@ -1,0 +1,4 @@
+vieneu==3.6.4
+fastapi>=0.140,<1
+uvicorn>=0.40,<1
+soundfile>=0.14,<1
