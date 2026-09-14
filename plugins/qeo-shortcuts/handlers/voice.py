@@ -12,7 +12,12 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from ..interaction import INTERACTIONS, interaction_key, is_slash_command
+
 USAGE_TEXT = 'Usage: /qeovoice "text"'
+PROMPT_TEXT = "🎙️ Bạn muốn Chi Chi đọc nội dung gì? Hãy gửi text trong vòng 1 phút."
+INVALID_TEXT = "⚠️ Hãy gửi nội dung text. Yêu cầu hiện tại sẽ hết hạn sau 1 phút kể từ lúc bắt đầu."
+EXPIRED_TEXT = "⏱️ Yêu cầu Qeo Voice đã hết hạn. Hãy gửi lại /qeovoice để tạo voice mới."
 OFFLINE_TEXT = "⚠️ Qeo Voice unavailable — Mac mini voice worker is offline."
 BUSY_TEXT = "⚠️ Qeo Voice is busy. Please try again in a moment."
 FAILED_TEXT = "⚠️ Qeo Voice failed to generate audio. Please try again."
@@ -54,15 +59,21 @@ def _schedule(coro) -> None:
         asyncio.run(coro)
 
 
-async def _send_text_reply(gateway, source, event, text: str) -> None:
+async def _send_text_to_source(gateway, source, message_id, text: str) -> None:
     adapter = gateway._adapter_for_source(source)
     if adapter is None:
         return
     await adapter.send(
         source.chat_id,
         text,
-        reply_to=getattr(event, "message_id", None),
+        reply_to=message_id,
         metadata=_reply_metadata(source),
+    )
+
+
+async def _send_text_reply(gateway, source, event, text: str) -> None:
+    await _send_text_to_source(
+        gateway, source, getattr(event, "message_id", None), text
     )
 
 
@@ -167,22 +178,60 @@ def _handle_qeovoice_help(raw_args: str) -> str:
 
 def _handle_qeovoice_native(event, gateway, **kwargs):
     text = getattr(event, "text", None) or ""
-    match = CMD_RE.match(text)
-    if not match:
-        return None
     source = getattr(event, "source", None)
     if source is None:
         return None
 
-    speech = (match.group("args") or "").strip()
-    if len(speech) >= 2 and speech.startswith('"') and speech.endswith('"'):
-        speech = speech[1:-1]
-    if not speech.strip():
-        _schedule(_send_text_reply(gateway, source, event, USAGE_TEXT))
-        return {"action": "skip", "reason": "qeovoice-usage"}
+    match = CMD_RE.match(text)
+    if match:
+        key = interaction_key(source)
+        if key is not None:
+            INTERACTIONS.clear(key)
 
-    _schedule(_process_qeovoice(event, gateway, speech))
-    return {"action": "skip", "reason": "qeovoice-dispatched"}
+        speech = (match.group("args") or "").strip()
+        if len(speech) >= 2 and speech.startswith('"') and speech.endswith('"'):
+            speech = speech[1:-1]
+        if speech.strip():
+            _schedule(_process_qeovoice(event, gateway, speech))
+            return {"action": "skip", "reason": "qeovoice-dispatched"}
+
+        if key is None:
+            _schedule(_send_text_reply(gateway, source, event, USAGE_TEXT))
+            return {"action": "skip", "reason": "qeovoice-usage"}
+
+        async def on_expire(pending):
+            await _send_text_to_source(
+                gateway, pending.source, pending.message_id, EXPIRED_TEXT
+            )
+
+        INTERACTIONS.start(
+            key,
+            kind="voice_text",
+            payload={},
+            source=source,
+            message_id=getattr(event, "message_id", None),
+            on_expire=on_expire,
+        )
+        _schedule(_send_text_reply(gateway, source, event, PROMPT_TEXT))
+        return {"action": "skip", "reason": "qeovoice-awaiting-text"}
+
+    key = interaction_key(source)
+    if key is None:
+        return None
+    pending = INTERACTIONS.peek(key)
+    if pending is None or pending.kind != "voice_text":
+        return None
+    if is_slash_command(text):
+        return None
+    if not text.strip():
+        _schedule(_send_text_reply(gateway, source, event, INVALID_TEXT))
+        return {"action": "skip", "reason": "qeovoice-invalid-followup"}
+
+    pending = INTERACTIONS.take(key, "voice_text")
+    if pending is None:
+        return None
+    _schedule(_process_qeovoice(event, gateway, text))
+    return {"action": "skip", "reason": "qeovoice-followup-dispatched"}
 
 
 def register_voice(ctx) -> None:

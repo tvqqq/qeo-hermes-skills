@@ -51,11 +51,15 @@ class QeoVoiceShortcutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.voice = load_voice_module()
+        cls.interaction = load_shortcut_module("interaction")
 
-    def event(self, text="/qeovoice Xin chào"):
+    def event(self, text="/qeovoice Xin chào", media_urls=None, user_id="7"):
         return SimpleNamespace(
             text=text,
-            source=SimpleNamespace(profile="default", chat_id="1", thread_id="2"),
+            media_urls=list(media_urls or []),
+            source=SimpleNamespace(
+                profile="default", user_id=user_id, chat_id="1", thread_id="2"
+            ),
             message_id="10",
         )
 
@@ -93,18 +97,139 @@ class QeoVoiceShortcutTests(unittest.TestCase):
         self.assertEqual(result, {"action": "skip", "reason": "qeovoice-dispatched"})
         process.assert_called_once_with(event, mock.ANY, "Dòng một\nDòng hai")
 
+    def test_bare_command_starts_voice_pending_and_prompts(self):
+        async def scenario():
+            adapter = FakeAdapter()
+            gateway = FakeGateway(adapter)
+            event = self.event("/qeovoice")
+            key = self.interaction.interaction_key(event.source)
+            manager = self.interaction.InteractionManager()
+            with mock.patch.object(self.voice, "INTERACTIONS", manager, create=True):
+                result = self.voice._handle_qeovoice_native(event, gateway)
+                await asyncio.sleep(0)
+            self.assertEqual(result, {"action": "skip", "reason": "qeovoice-awaiting-text"})
+            pending = manager.peek(key)
+            self.assertIsNotNone(pending)
+            self.assertEqual(pending.kind, "voice_text")
+            self.assertEqual(
+                adapter.texts[-1][1],
+                "🎙️ Bạn muốn Chi Chi đọc nội dung gì? Hãy gửi text trong vòng 1 phút.",
+            )
+            manager.clear(key)
+            await asyncio.sleep(0)
+        asyncio.run(scenario())
+
+    def test_pending_voice_consumes_multiline_followup(self):
+        async def scenario():
+            command = self.event("/qeovoice")
+            followup = self.event("Dòng một\nDòng hai")
+            key = self.interaction.interaction_key(command.source)
+            manager = self.interaction.InteractionManager()
+            manager.start(
+                key, kind="voice_text", payload={}, source=command.source,
+                message_id=command.message_id, on_expire=mock.AsyncMock(),
+            )
+            process = mock.Mock()
+            with mock.patch.object(self.voice, "INTERACTIONS", manager, create=True), \
+                 mock.patch.object(self.voice, "_schedule"), \
+                 mock.patch.object(self.voice, "_process_qeovoice", new=process):
+                result = self.voice._handle_qeovoice_native(followup, object())
+            self.assertEqual(result, {"action": "skip", "reason": "qeovoice-followup-dispatched"})
+            process.assert_called_once_with(followup, mock.ANY, "Dòng một\nDòng hai")
+            self.assertIsNone(manager.peek(key))
+            await asyncio.sleep(0)
+        asyncio.run(scenario())
+
+    def test_invalid_voice_followup_keeps_pending_and_reminds(self):
+        async def scenario():
+            adapter = FakeAdapter()
+            gateway = FakeGateway(adapter)
+            command = self.event("/qeovoice")
+            followup = self.event("", media_urls=["/tmp/input.jpg"])
+            key = self.interaction.interaction_key(command.source)
+            manager = self.interaction.InteractionManager()
+            manager.start(
+                key, kind="voice_text", payload={}, source=command.source,
+                message_id=command.message_id, on_expire=mock.AsyncMock(),
+            )
+            with mock.patch.object(self.voice, "INTERACTIONS", manager, create=True):
+                result = self.voice._handle_qeovoice_native(followup, gateway)
+                await asyncio.sleep(0)
+            self.assertEqual(result, {"action": "skip", "reason": "qeovoice-invalid-followup"})
+            self.assertIsNotNone(manager.peek(key))
+            self.assertEqual(
+                adapter.texts[-1][1],
+                "⚠️ Hãy gửi nội dung text. Yêu cầu hiện tại sẽ hết hạn sau 1 phút kể từ lúc bắt đầu.",
+            )
+            manager.clear(key)
+            await asyncio.sleep(0)
+        asyncio.run(scenario())
+
     def test_usage_recommends_quoted_text_form(self):
         self.assertEqual(self.voice.USAGE_TEXT, 'Usage: /qeovoice "text"')
 
-    def test_empty_text_sends_usage_and_skips_llm(self):
+    def test_bare_command_without_user_identity_sends_usage_and_skips_llm(self):
         scheduled = []
         def capture(coro):
             scheduled.append(coro)
             coro.close()
+        event = self.event("/qeovoice", user_id=None)
         with mock.patch.object(self.voice, "_schedule", side_effect=capture):
-            result = self.voice._handle_qeovoice_native(self.event("/qeovoice"), object())
+            result = self.voice._handle_qeovoice_native(event, object())
         self.assertEqual(result, {"action": "skip", "reason": "qeovoice-usage"})
         self.assertEqual(len(scheduled), 1)
+
+    def test_immediate_voice_command_replaces_existing_pending(self):
+        async def scenario():
+            event = self.event('/qeovoice "Xin chào"')
+            key = self.interaction.interaction_key(event.source)
+            manager = self.interaction.InteractionManager()
+            manager.start(
+                key, kind="story_image", payload={"preset": "mango"},
+                source=event.source, message_id="9", on_expire=mock.AsyncMock(),
+            )
+            process = mock.Mock()
+            with mock.patch.object(self.voice, "INTERACTIONS", manager, create=True), \
+                 mock.patch.object(self.voice, "_schedule"), \
+                 mock.patch.object(self.voice, "_process_qeovoice", new=process):
+                result = self.voice._handle_qeovoice_native(event, object())
+            self.assertEqual(result, {"action": "skip", "reason": "qeovoice-dispatched"})
+            self.assertIsNone(manager.peek(key))
+            await asyncio.sleep(0)
+        asyncio.run(scenario())
+
+    def test_non_qeo_slash_command_does_not_consume_voice_pending(self):
+        async def scenario():
+            event = self.event("/help")
+            key = self.interaction.interaction_key(event.source)
+            manager = self.interaction.InteractionManager()
+            manager.start(
+                key, kind="voice_text", payload={}, source=event.source,
+                message_id="9", on_expire=mock.AsyncMock(),
+            )
+            with mock.patch.object(self.voice, "INTERACTIONS", manager, create=True):
+                result = self.voice._handle_qeovoice_native(event, object())
+            self.assertIsNone(result)
+            self.assertIsNotNone(manager.peek(key))
+            manager.clear(key)
+            await asyncio.sleep(0)
+        asyncio.run(scenario())
+
+    def test_voice_pending_expiry_sends_exact_alert_once(self):
+        async def scenario():
+            adapter = FakeAdapter()
+            gateway = FakeGateway(adapter)
+            event = self.event("/qeovoice")
+            manager = self.interaction.InteractionManager(ttl_seconds=0.01)
+            with mock.patch.object(self.voice, "INTERACTIONS", manager, create=True):
+                self.voice._handle_qeovoice_native(event, gateway)
+                await asyncio.sleep(0.03)
+            alerts = [text for _, text, _, _ in adapter.texts if text.startswith("⏱️")]
+            self.assertEqual(
+                alerts,
+                ["⏱️ Yêu cầu Qeo Voice đã hết hạn. Hãy gửi lại /qeovoice để tạo voice mới."],
+            )
+        asyncio.run(scenario())
 
     def test_success_sends_native_ogg_voice_then_deletes_temp_file(self):
         adapter = FakeAdapter()
