@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import io
 import os
-import sys
 import tempfile
 import unittest
 import urllib.error
@@ -12,18 +10,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from tests.qeo_shortcuts_loader import load_shortcut_module
+
 ROOT = Path(__file__).resolve().parents[1]
 VOICE_PATH = ROOT / "plugins" / "qeo-shortcuts" / "handlers" / "voice.py"
 
 
 def load_voice_module():
-    spec = importlib.util.spec_from_file_location("qeo_shortcuts_voice", VOICE_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load {VOICE_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_shortcut_module("handlers.voice")
 
 class FakeAdapter:
     def __init__(self):

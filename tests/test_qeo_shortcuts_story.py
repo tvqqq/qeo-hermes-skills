@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-import importlib.util
 import os
-import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+from tests.qeo_shortcuts_loader import load_shortcut_module
 
 ROOT = Path(__file__).resolve().parents[1]
 STORY_PATH = ROOT / "plugins" / "qeo-shortcuts" / "handlers" / "story.py"
 
 
 def load_story_module():
-    spec = importlib.util.spec_from_file_location("qeo_shortcuts_story", STORY_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load {STORY_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_shortcut_module("handlers.story")
 
 
 class StoryShortcutTests(unittest.TestCase):
