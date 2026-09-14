@@ -5,152 +5,90 @@ Status: Approved design pending implementation plan
 
 ## Goal
 
-Add a conversational two-message mode to the existing Telegram shortcuts without breaking their current one-message fast paths.
+Add a two-message conversational mode while preserving all existing one-message fast paths.
 
-Required behavior:
-
-- `/qeovoice "text"` and `/qeovoice text` still synthesize immediately.
+- `/qeovoice "text"` and `/qeovoice text` synthesize immediately.
 - Bare `/qeovoice` asks for text, then consumes the same user's next valid text message.
-- Image + `/qeostory [preset]` still renders immediately.
+- image + `/qeostory [preset]` renders immediately.
 - `/qeostory [preset]` without an image asks for an image, then consumes the same user's next valid image.
 - Pending requests expire after 60 seconds and proactively notify the user.
-- Pending follow-up messages are handled deterministically in `qeo-shortcuts` and do not require an LLM turn.
+- Pending replies are handled inside `qeo-shortcuts`; they do not require an LLM turn.
 
 ## Architecture
 
-Add one shared in-memory interaction-state module:
+Add `plugins/qeo-shortcuts/interaction.py` as a shared in-memory pending-state manager. It owns state identity, TTL, replacement, cancellation, expiry, and stale-timeout protection. Voice and story handlers keep ownership of parsing, validation, execution, and user-facing result/error messages.
 
-```text
-plugins/qeo-shortcuts/
-├── interaction.py
-└── handlers/
-    ├── story.py
-    └── voice.py
-```
+No database or external service is added. State is intentionally memory-only; a gateway restart may discard pending requests.
 
-`interaction.py` owns pending state, timeout scheduling, replacement, expiry, and race protection. It does not know how to synthesize voice or render stories.
+## State Identity
 
-Each handler continues to own command parsing, input validation, execution, and user-facing success/failure behavior. Both handlers use the shared interaction manager so timeout and isolation logic is implemented once.
-
-No database or external service is added. Pending state is intentionally memory-only because the lifetime is one minute. A gateway restart may discard pending requests.
-
-## Pending State Identity
-
-A pending interaction is isolated by:
+Pending state is keyed by:
 
 ```text
 (profile, user_id, chat_id, thread_id)
 ```
 
-Conversation mode requires `source.user_id`. If no user identity is available, the handler must not create pending state.
+Conversation mode requires `source.user_id`. If it is missing, a bare command does not create state and falls back to that command's existing help/usage response.
 
-Only one pending interaction may exist for a key. Starting another Qeo conversational command replaces the previous pending request for that key.
+One key can have only one pending Qeo interaction. Any newly recognized Qeo shortcut from the same key clears the previous pending request first, then either executes immediately or creates a new pending request.
 
-Each pending interaction records at minimum:
+A pending record contains a unique `request_id`, kind (`voice_text` or `story_image`), created/expiry timestamps, command payload such as story preset, and original routing/message metadata for timeout feedback.
 
-- a unique `request_id`;
-- interaction kind: `voice_text` or `story_image`;
-- creation and expiry timestamps;
-- command-specific payload such as the selected story preset;
-- original source/message information needed to send timeout feedback in the same chat/topic.
+TTL is exactly 60 seconds from the original command. Invalid input never extends it.
 
-The timeout is always 60 seconds from the original command. Invalid follow-up input does not reset or extend the deadline.
+## Gateway Semantics
 
-## Gateway Hook Semantics
+Hermes `pre_gateway_dispatch` is the deterministic interception point. Consumed conversational messages return `skip`, so they do not reach the LLM.
 
-Hermes runs `pre_gateway_dispatch` once per inbound non-internal message before normal agent dispatch. The first returned `skip`, `rewrite`, or `allow` action wins.
+Recognized Qeo commands take precedence over pending-input consumption. Example: while waiting for voice text, `/qeostory mango` is not spoken; it clears voice pending and starts story pending. The inverse applies to `/qeovoice` while story is pending.
 
-The shortcut handlers continue to use this hook as the deterministic interception point. A valid pending follow-up is consumed and returns `skip`, preventing it from reaching the LLM.
+Other slash commands are not consumed as pending content. They continue through Hermes while the pending Qeo request keeps its original deadline.
 
-Recognized Qeo shortcut commands take precedence over pending-input consumption. For example, if a user waiting on voice text sends `/qeostory`, the voice flow must not consume that command as speech; the story flow replaces the pending request instead. The inverse applies to `/qeovoice` while story input is pending.
+## Qeo Voice
 
-Other slash commands are not consumed as pending content. They continue through Hermes normally while the pending request keeps its original expiry time.
-
-## Qeo Voice Flow
-
-Immediate modes remain unchanged:
-
-```text
-/qeovoice "text"
-/qeovoice text
-```
-
-Both synthesize immediately through the existing Mac mini worker path.
-
-Bare `/qeovoice` starts `voice_text` pending state and replies:
+Bare `/qeovoice` creates `voice_text` pending state and replies:
 
 ```text
 🎙️ Bạn muốn Chi Chi đọc nội dung gì? Hãy gửi text trong vòng 1 phút.
 ```
 
-The next valid plain-text message from the same `(profile, user_id, chat_id, thread_id)` is the speech payload. It may contain multiple lines and does not need outer quotes.
+A valid follow-up has non-whitespace `event.text` and is not a slash command. The full text, including newlines, is the speech payload; quotes are not required. Attachments do not matter when valid text is present.
 
-When valid text arrives:
+On valid text: clear pending first, invalidate/cancel timeout, call the existing `_process_qeovoice` path, and return `skip`.
 
-1. remove the pending state before starting synthesis;
-2. cancel or invalidate its timeout task;
-3. call the existing `_process_qeovoice` path;
-4. return `skip` so the message does not reach the LLM.
-
-If the user sends an image, sticker, empty message, or other non-text payload while voice input is pending, keep the pending request and reply:
+Without valid text, keep pending and reply:
 
 ```text
 ⚠️ Hãy gửi nội dung text. Yêu cầu hiện tại sẽ hết hạn sau 1 phút kể từ lúc bắt đầu.
 ```
 
-The original 60-second deadline is unchanged.
-
-If the deadline expires first, clear the pending state and send:
+On expiry:
 
 ```text
 ⏱️ Yêu cầu Qeo Voice đã hết hạn. Hãy gửi lại /qeovoice để tạo voice mới.
 ```
 
-Existing worker offline, busy, synthesis-failure, OGG/Opus, and no-fallback behavior remain unchanged.
+Existing worker offline/busy/failure messages, OGG/Opus delivery, and the no-fallback invariant remain unchanged.
 
-## Qeo Story Flow
+## Qeo Story
 
-Immediate mode remains unchanged:
-
-```text
-image + /qeostory [preset]
-```
-
-If `/qeostory` or `/qeostory [preset]` arrives without an image, start `story_image` pending state. Store the selected preset, if any, in the pending payload and reply:
+If `/qeostory [preset]` arrives without an image, create `story_image` pending state, preserve the selected preset, and reply:
 
 ```text
 🖼️ Hãy gửi ảnh screenshot trong vòng 1 phút.
 ```
 
-Examples:
+A valid follow-up is any event for which the existing story image extractor resolves a local image path. Caption text is ignored for rendering input.
 
-```text
-/qeostory
-→ pending story_image {preset: null}
+On valid image: clear pending first, invalidate/cancel timeout, render with the stored preset, send the image, and return `skip`.
 
-/qeostory mango
-→ pending story_image {preset: "mango"}
-```
-
-The next valid image from the same `(profile, user_id, chat_id, thread_id)` completes the request.
-
-When a valid image arrives:
-
-1. remove the pending state before rendering;
-2. cancel or invalidate its timeout task;
-3. call the existing qeo-story render path with the stored preset;
-4. send the resulting image through the Telegram adapter;
-5. return `skip` so the message does not reach the LLM.
-
-If the user sends ordinary text instead of an image while story input is pending, keep the pending request and reply:
+Without a resolvable image, keep pending and reply:
 
 ```text
 ⚠️ Hãy gửi ảnh screenshot. Yêu cầu hiện tại sẽ hết hạn sau 1 phút kể từ lúc bắt đầu.
 ```
 
-The original 60-second deadline is unchanged.
-
-If the deadline expires first, clear the pending state and send:
+On expiry:
 
 ```text
 ⏱️ Yêu cầu Qeo Story đã hết hạn. Hãy gửi lại /qeostory để tạo story mới.
@@ -158,71 +96,31 @@ If the deadline expires first, clear the pending state and send:
 
 Existing preset validation and render-failure behavior remain unchanged.
 
-## Replacement and Isolation Rules
+## Replacement, Isolation, and Race Safety
 
-A new recognized Qeo shortcut from the same interaction key replaces the previous pending request.
+A new recognized Qeo command always clears the old pending request before processing the new one, including immediate commands. For example, pending story + `/qeovoice "Xin chào"` cancels story and synthesizes immediately.
 
-Example:
+Messages from another profile, user, chat, or topic never consume or mutate the pending request.
 
-```text
-/qeovoice
-→ waiting for voice text
-/qeostory mango
-→ voice pending is cancelled
-→ waiting for story image with preset mango
-```
+Each pending request has a unique `request_id`. A timeout callback must confirm the current record still has that `request_id` before clearing state or sending an alert. Completing or replacing a request should also cancel its timeout task when possible. This prevents stale alerts when response and timeout race.
 
-The replaced request must never emit a stale timeout alert.
-
-Messages from another user, chat, topic, or profile do not consume or mutate the pending request. They continue through the normal Hermes flow.
-
-## Timeout and Race Safety
-
-Each pending request has a unique `request_id`. The timeout callback must confirm that the current state for the key still has the same `request_id` before clearing state or sending an expiry message.
-
-This protects the race where a timeout wakes up at the same moment the user responds or starts a replacement command.
-
-Completing, replacing, or otherwise clearing a pending interaction should cancel its timeout task when possible. `request_id` validation remains the final protection against stale timeout delivery.
-
-Timeout alerts must be sent to the same chat/topic as the original command and should reply to the original command message when the adapter supports it.
+Timeout alerts stay in the original chat/topic and should reply to the original command when supported.
 
 ## Error Handling
 
-- Invalid follow-up type: send a reminder, keep pending state, do not reset TTL.
-- Voice worker failure after valid input: use existing exact qeo-voice error behavior; do not recreate pending state.
-- Story render failure after valid image: use existing render-failure behavior; do not recreate pending state.
-- Missing `user_id`: do not create conversational pending state.
-- Gateway restart: pending state may be lost; no persistence or recovery is required.
-- No failure path may introduce server-side TTS fallback.
+- Invalid follow-up: remind, keep state, do not reset TTL.
+- Voice failure after valid input: use existing qeo-voice error behavior; do not recreate pending state.
+- Story failure after valid image: use existing render-failure behavior; do not recreate pending state.
+- Missing `user_id`: no pending state; use current help/usage.
+- Gateway restart: pending may be lost; no persistence/recovery required.
+- No server-side TTS fallback may be introduced.
 
-## Testing
+## Testing and Acceptance
 
-Implementation follows TDD. Automated coverage must include at least:
+Implementation uses TDD. Cover: key isolation; exact 60-second expiry; one timeout alert; completion suppressing timeout; replacement suppressing stale timeout; immediate replacement commands; unrelated identities; non-Qeo slash commands; missing user identity; bare voice prompt; plain/multiline voice follow-up; invalid voice follow-up; bare story prompt; preset preservation; image follow-up; invalid story follow-up; existing immediate forms; and qeo-voice no-fallback.
 
-- interaction key isolation by profile, user, chat, and topic;
-- exact 60-second TTL behavior;
-- one timeout alert on expiry;
-- completion before expiry suppresses timeout alert;
-- replacement invalidates the old timeout;
-- unrelated user/chat/topic/profile cannot consume state;
-- non-Qeo slash commands are not consumed as pending input;
-- bare `/qeovoice` prompts for text;
-- plain and multiline follow-up text generates voice;
-- invalid voice follow-up reminds without resetting TTL;
-- bare `/qeostory` prompts for an image;
-- `/qeostory mango` preserves `mango` in pending state;
-- follow-up image renders with the stored preset;
-- invalid story follow-up reminds without resetting TTL;
-- immediate `/qeovoice "text"`, `/qeovoice text`, and image + `/qeostory` continue to work;
-- qeo-voice no-fallback invariant remains enforced.
-
-Production acceptance must verify both conversational flows in Telegram, including timeout behavior and replacement of one pending Qeo command by the other.
+Production acceptance must verify both conversational Telegram flows, timeout alerts, and replacing one pending Qeo command with the other.
 
 ## Out of Scope
 
-- Persistent conversational state across gateway restarts.
-- A generic conversation framework for unrelated plugins.
-- More than one simultaneous pending Qeo interaction for the same interaction key.
-- Extending the 60-second deadline after invalid input.
-- Adding aliases or changing existing Telegram command names.
-- Changing the Mac voice worker, Tailscale path, audio format, or qeo-story renderer implementation.
+Persistent state across restart, a generic conversation framework, multiple simultaneous pending Qeo interactions per key, TTL extension after invalid input, new command aliases, and changes to the Mac voice worker, Tailscale path, audio format, or story renderer.
