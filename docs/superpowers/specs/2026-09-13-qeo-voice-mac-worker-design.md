@@ -2,7 +2,9 @@
 
 Date: 2026-09-13
 Repository: `tvqqq/qeo-hermes-skills`
-Status: Approved design, pending implementation plan
+Status: Approved functional design; Mac runtime/deployment superseded by `2026-09-14-qeo-mac-docker-runtime-design.md`
+
+> **Supersession note:** For Mac packaging, networking, boot/recovery, and worker audio transport, the 2026-09-14 Docker runtime design takes precedence. The qeo-voice API, registry, Telegram handler, error behavior, and hard no-fallback policy in this document remain authoritative where they do not conflict.
 
 ## Purpose
 
@@ -12,7 +14,7 @@ The Mac mini is the sole voice-compute authority. UpCloud owns Telegram/Hermes r
 
 Primary flow:
 
-`Telegram -> UpCloud Hermes -> qeo-shortcuts -> Tailscale -> Mac mini qeo-voice worker -> VieNeu v3 Turbo -> WAV -> Telegram voice bubble`
+`Telegram -> UpCloud Hermes -> qeo-shortcuts -> Tailscale -> Mac mini Docker qeo-voice worker -> VieNeu v3 Turbo -> OGG/Opus -> Telegram voice bubble`
 
 ## Goals
 
@@ -38,43 +40,27 @@ This feature will not:
 
 ## Repository Structure
 
-The repository structure extends the approved repository design with a dedicated worker area:
+The qeo-voice functional boundaries remain split between Hermes-facing skill/plugin code and the Mac-local worker:
 
 ```text
 qeo-hermes-skills/
-├── skills/
-│   ├── qeo-story/
-│   └── qeo-voice/
-│       ├── SKILL.md
-│       └── references/
-│           └── voices.md
-├── plugins/
-│   └── qeo-shortcuts/
-│       ├── plugin.yaml
-│       ├── __init__.py
-│       └── handlers/
-│           ├── story.py
-│           └── voice.py
-├── workers/
-│   └── qeo-voice/
-│       ├── app.py
-│       ├── engine.py
-│       ├── voices.json
-│       ├── requirements.txt
-│       └── launchd/
-│           └── com.qeo.voice.plist.template
-├── scripts/
-│   ├── install.sh
-│   ├── deploy-skill.sh
-│   ├── deploy.sh
-│   ├── deploy-voice-worker.sh
-│   └── verify.sh
-└── docs/
-    └── superpowers/specs/
-        └── 2026-09-13-qeo-voice-mac-worker-design.md
+├── skills/qeo-voice/
+├── plugins/qeo-shortcuts/handlers/voice.py
+├── workers/qeo-voice/
+│   ├── Dockerfile
+│   ├── app.py
+│   ├── engine.py
+│   ├── registry.py
+│   ├── requirements.txt
+│   └── voices.json
+├── docker/mac/compose.yml
+└── scripts/
+    ├── mac-up.sh
+    ├── mac-down.sh
+    └── mac-status.sh
 ```
 
-`workers/qeo-voice` is intentionally separate from `skills/qeo-voice`. The skill is deployed to Hermes; the worker is deployed only to the Mac mini.
+`workers/qeo-voice` is intentionally separate from `skills/qeo-voice`. The skill is deployed natively to Hermes on UpCloud; the worker is packaged into the Mac Docker runtime defined by the 2026-09-14 design.
 
 ## Naming Contract
 
@@ -225,38 +211,20 @@ Success:
 
 ```http
 200 OK
-Content-Type: audio/wav
+Content-Type: audio/ogg
 ```
 
-The body is the generated WAV bytes.
+The body is generated OGG/Opus bytes suitable for Telegram native voice delivery.
 
 Validation errors use 4xx. A concurrent generation returns `503` with a machine-readable `busy` error. Worker/model failures use 5xx. Error responses are JSON and never contain secrets or internal stack traces.
 
 ## Connectivity and Security
 
-UpCloud reaches the Mac worker only through Tailscale/private Tailnet routing.
+UpCloud reaches qeo-voice only through Tailscale/private Tailnet routing. The Docker service publishes its worker port only to macOS loopback (`127.0.0.1`), and host-native Tailscale Serve proxies that loopback endpoint to the tailnet. Funnel/public exposure is not used.
 
-The public repository does not hardcode:
+The public repository does not hardcode the Mac Tailscale IP, MagicDNS hostname, bearer token, Telegram IDs, or bot tokens. UpCloud receives `QEO_VOICE_WORKER_URL`, `QEO_VOICE_TOKEN`, and `QEO_VOICE_TIMEOUT_SECONDS` from private runtime configuration; timeout defaults to 90 seconds.
 
-- the Mac Tailscale IP;
-- MagicDNS hostname;
-- bearer token;
-- Telegram IDs;
-- bot tokens.
-
-UpCloud configuration supplies:
-
-```text
-QEO_VOICE_WORKER_URL
-QEO_VOICE_TOKEN
-QEO_VOICE_TIMEOUT_SECONDS
-```
-
-`QEO_VOICE_TIMEOUT_SECONDS` defaults to 90 seconds when unset.
-
-The Mac worker receives the matching token from its private environment. `scripts/deploy-voice-worker.sh` resolves the current Mac Tailscale IPv4 with `tailscale ip -4` unless an explicit private bind host is supplied, and writes that value only into the generated local LaunchAgent configuration. The worker binds to that private address, not `0.0.0.0` and not a public Internet interface.
-
-Deployment must verify that the configured endpoint is reachable from UpCloud over Tailscale before enabling `/qeovoice`.
+The matching token and private voice asset path are supplied to the Docker service through the private Mac config described by the 2026-09-14 Docker runtime design. Deployment must verify authenticated reachability from UpCloud before enabling the production command.
 
 ## Telegram Native Fast Path
 
@@ -269,8 +237,8 @@ Telegram /qeovoice <text>
 -> pre_gateway_dispatch
 -> validate non-empty text
 -> POST directly to Mac worker /v1/tts through configured private URL
--> receive WAV bytes
--> write a bounded temporary file under HERMES_HOME/audio_cache/qeovoice
+-> receive OGG/Opus bytes
+-> write a bounded temporary `.ogg` file under HERMES_HOME/audio_cache/qeovoice
 -> await Telegram adapter send_voice for the same conversation/topic
 -> delete the temporary file after send completes
 -> skip normal LLM dispatch
@@ -356,22 +324,11 @@ Future voices are added by registry entry plus private asset provisioning. They 
 
 ## Mac Deployment Contract
 
-`scripts/deploy-voice-worker.sh` deploys only the worker to the Mac mini.
+The Mac worker is deployed as the `qeo-voice-worker` Docker Compose service. It is not installed into a host Python virtual environment and does not use LaunchAgent.
 
-Responsibilities:
+The service image contains Python/VieNeu/ffmpeg runtime dependencies. Private Chi Chi reference audio is bind-mounted read-only from outside Git, and model cache persists outside the replaceable container layer. The service uses `restart: unless-stopped`, publishes only to macOS loopback, and is exposed to UpCloud through host-native Tailscale Serve.
 
-- create/update a dedicated worker virtual environment;
-- install pinned worker dependencies;
-- deploy worker source from the Git checkout;
-- validate the configured private voice asset directory;
-- resolve the private Tailscale IPv4 unless explicitly configured;
-- install/update `~/Library/LaunchAgents/com.qeo.voice.plist` from the repository template;
-- configure `RunAtLoad=true` and `KeepAlive=true`;
-- start/restart the LaunchAgent;
-- wait for authenticated `/health` success;
-- never copy private reference audio into Git-tracked paths.
-
-The v1 service is a per-user LaunchAgent. It starts when the Mac user session is active and restarts after crashes. If the Mac is rebooted but no user session is logged in, the worker is considered offline and `/qeovoice` follows the normal offline behavior.
+Operational commands and exact Compose contracts are owned by `2026-09-14-qeo-mac-docker-runtime-design.md`.
 
 ## UpCloud Deployment Contract
 
@@ -422,7 +379,7 @@ Tests cover:
 
 - `/qeovoice <text>` recognition;
 - empty text usage response;
-- successful WAV response sent through `send_voice`;
+- successful OGG/Opus response sent through `send_voice`;
 - worker connection failure/timeout returns the exact offline alert;
 - worker `503 busy` returns the busy alert;
 - worker 5xx returns the generation-failed alert;
@@ -430,9 +387,9 @@ Tests cover:
 
 ### Mac production smoke
 
-- LaunchAgent is running;
+- Docker `qeo-voice-worker` container is running and healthy;
 - authenticated `/health` returns `status=ok`;
-- Chi Chi synthesis produces a valid mono WAV;
+- Chi Chi synthesis produces valid OGG/Opus audio;
 - repeated requests reuse the resident worker process.
 
 ### End-to-end Telegram smoke
@@ -450,7 +407,7 @@ A second smoke test temporarily stops or makes the Mac worker unreachable and ve
 ## Operational Limits
 
 - v1 processes one synthesis at a time and rejects overlap with `503 busy`.
-- Worker availability depends on the Mac mini being online, the user LaunchAgent being active, Tailscale connected, and the worker healthy.
+- Worker availability depends on the Mac mini being online, Docker Desktop running, Tailscale connected, Tailscale Serve configured, and the container healthy.
 - UpCloud intentionally cannot synthesize voice when the Mac is offline.
 - Reference quality currently limits clone fidelity; replacing the private Chi Chi sample with a better 5–8 second sample is allowed without code changes.
 
