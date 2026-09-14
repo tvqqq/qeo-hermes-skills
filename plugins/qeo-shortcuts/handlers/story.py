@@ -20,12 +20,10 @@ INVALID_TEXT = "⚠️ Hãy gửi ảnh screenshot. Yêu cầu hiện tại sẽ
 EXPIRED_TEXT = "⏱️ Yêu cầu Qeo Story đã hết hạn. Hãy gửi lại /qeostory để tạo story mới."
 
 HELP_TEXT = (
-    "Gửi ảnh screenshot kèm caption `/qeostory [preset]`.\n\n"
-    "Ví dụ:\n"
-    "- `/qeostory`\n"
-    "- `/qeostory mango`\n"
-    "- `/qeostory qeo-green`\n\n"
-    "Lưu ý: ảnh và command phải nằm trong cùng một message."
+    "Tạo Qeo Story theo 2 cách:\n\n"
+    "- Gửi ảnh screenshot kèm caption `/qeostory [preset]` để render ngay.\n"
+    "- Gửi `/qeostory [preset]`, rồi gửi ảnh trong vòng 1 phút.\n\n"
+    "Ví dụ: `/qeostory`, `/qeostory mango`, `/qeostory qeo-green`."
 )
 
 CMD_RE = re.compile(

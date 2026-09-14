@@ -15,13 +15,15 @@ Generate Vietnamese speech with the Qeo Voice worker.
 
 ## Telegram
 
-The Telegram shortcut is:
+Telegram supports immediate and conversational forms:
 
 ```text
-/qeovoice "text"
+/qeovoice "text"     -> synthesize immediately
+/qeovoice text       -> synthesize immediately
+/qeovoice            -> ask for text, valid for 60 seconds
 ```
 
-Quoted input is preferred and may span multiple lines; the handler preserves embedded newlines. Unquoted input remains backward-compatible.
+Quoted input is preferred for explicit immediate multiline text; embedded newlines are preserved. In conversational mode, the same user must reply in the same chat/topic within 60 seconds. Pending state is in-memory and isolated by profile, user, chat, and topic.
 
 The default registered voice is **Chi Chi** using the `tight-denoised` profile.
 

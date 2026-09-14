@@ -53,28 +53,31 @@ Keep each command handler in its own module:
 ```text
 plugins/qeo-shortcuts/
 ├── __init__.py
+├── interaction.py
 └── handlers/
     ├── story.py
+    ├── voice.py
     └── <future-command>.py
 ```
 
-The root plugin file should only compose registrations.
+The root plugin file should only compose registrations. `interaction.py` provides the shared 60-second in-memory pending state used by conversational shortcuts. State is isolated by profile, user, chat, and topic; one new Qeo command replaces the previous pending Qeo request for that identity. Non-Qeo slash commands pass through normally and do not reset the deadline.
 
 ## `qeo-story` example
 
-`/qeostory` is implemented as a native fast-path:
+`/qeostory` supports both native fast paths:
 
 ```text
-Telegram image + /qeostory [preset]
--> pre_gateway_dispatch
--> local qeo-story renderer
--> validate output
--> send image through the Telegram adapter
--> skip the normal agent turn
+image + /qeostory [preset]
+-> render immediately
+
+/qeostory [preset]
+-> ask for screenshot
+-> same user sends image within 60 seconds
+-> render with the stored preset
 ```
 
-The skill identity remains `qeo-story`; the shortcut does not rename the skill.
+Both flows run through `pre_gateway_dispatch`, send the result through the Telegram adapter, and skip the normal agent turn. The skill identity remains `qeo-story`; the shortcut does not rename the skill.
 
 ## `qeo-voice` example
 
-`qeo-voice` maps to `/qeovoice`. Prefer `/qeovoice "text"`; quoted input may span multiple lines and preserves embedded newlines, while unquoted input remains compatible. The gateway sends text to the authenticated Mac mini worker and returns OGG/Opus as a native Telegram voice bubble. The shortcut has no hyphen and has no server-side TTS fallback.
+`qeo-voice` maps to `/qeovoice`. `/qeovoice "text"` and `/qeovoice text` synthesize immediately. Bare `/qeovoice` asks for text, then consumes the same user's text in the same chat/topic within 60 seconds. Multiline text is preserved. The gateway sends text to the authenticated Mac mini worker and returns OGG/Opus as a native Telegram voice bubble. The shortcut has no hyphen and has no server-side TTS fallback.

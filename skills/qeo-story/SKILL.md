@@ -15,17 +15,16 @@ Turn one local PNG/JPEG/WebP into a deterministic **1080×1920 PNG** with the ap
 
 ## Telegram fast path
 
-For Telegram, the preferred flow is handled by the `qeo-shortcuts` plugin:
+For Telegram, `qeo-shortcuts` supports both immediate and conversational flows:
 
 ```text
-image + /qeostory [preset]
-→ native gateway handler
-→ qeo-story renderer
-→ PNG returned to the same chat/topic
+image + /qeostory [preset]  -> render immediately
+/qeostory [preset]          -> ask for an image, valid for 60 seconds
 ```
 
-The fast path does **not** require terminal/code tools in the active agent profile and does not depend on an LLM response or `MEDIA:` directive.
-Supported shortcuts are `/qeostory` plus compatibility forms `/qeo_story` and `/qeo-story` when routed through the gateway plugin. The image and command must be in the same Telegram message.
+In conversational mode the selected preset is preserved until the same user sends an image in the same chat/topic, or the request expires after 60 seconds. A new recognized Qeo command replaces the previous pending Qeo request for that identity.
+
+These native gateway flows do **not** require terminal/code tools in the active agent profile and do not depend on an LLM response or `MEDIA:` directive. Supported shortcuts are `/qeostory` plus compatibility forms `/qeo_story` and `/qeo-story` when routed through the gateway plugin.
 
 ## Manual / non-gateway use
 

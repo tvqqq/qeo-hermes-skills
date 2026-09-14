@@ -1,6 +1,6 @@
 # Qeo Voice
 
-`qeo-voice` provides the Telegram command `/qeovoice "text"` using a Mac mini as the only voice-compute host. The quoted form is preferred; unquoted text remains backward-compatible.
+`qeo-voice` provides `/qeovoice` using a Mac mini as the only voice-compute host. Immediate quoted/unquoted text remains supported, and bare `/qeovoice` starts a 60-second conversational text prompt.
 
 ## Runtime boundary
 
@@ -136,7 +136,24 @@ The handler removes only the outer quote pair and preserves embedded newlines. T
 /qeovoice Xin chào anh Qeo
 ```
 
-Empty input:
+Conversational usage:
+
+```text
+/qeovoice
+→ 🎙️ Bạn muốn Chi Chi đọc nội dung gì? Hãy gửi text trong vòng 1 phút.
+→ same user sends text in the same chat/topic within 60 seconds
+→ native voice bubble
+```
+
+Pending state is in-memory and isolated by profile, user, chat, and topic. A new recognized Qeo command replaces the current pending Qeo request for that identity. Non-Qeo slash commands pass through Hermes and do not reset the original 60-second deadline.
+
+If the user does not reply in time:
+
+```text
+⏱️ Yêu cầu Qeo Voice đã hết hạn. Hãy gửi lại /qeovoice để tạo voice mới.
+```
+
+If user identity is unavailable, bare `/qeovoice` falls back to:
 
 ```text
 Usage: /qeovoice "text"
