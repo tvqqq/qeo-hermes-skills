@@ -1,1 +1,8 @@
+.local/
 .worktrees/
+workers/qeo-voice/.venv/
+workers/qeo-voice/.env
+workers/qeo-voice/**/*.wav
+workers/qeo-voice/**/*.mp3
+workers/qeo-voice/**/*.ogg
+workers/qeo-voice/private/

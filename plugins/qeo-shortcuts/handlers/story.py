@@ -13,13 +13,17 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from ..interaction import INTERACTIONS, interaction_key, is_slash_command
+
+PROMPT_TEXT = "🖼️ Hãy gửi ảnh screenshot trong vòng 1 phút."
+INVALID_TEXT = "⚠️ Hãy gửi ảnh screenshot. Yêu cầu hiện tại sẽ hết hạn sau 1 phút kể từ lúc bắt đầu."
+EXPIRED_TEXT = "⏱️ Yêu cầu Qeo Story đã hết hạn. Hãy gửi lại /qeostory để tạo story mới."
+
 HELP_TEXT = (
-    "Gửi ảnh screenshot kèm caption `/qeostory [preset]`.\n\n"
-    "Ví dụ:\n"
-    "- `/qeostory`\n"
-    "- `/qeostory mango`\n"
-    "- `/qeostory qeo-green`\n\n"
-    "Lưu ý: ảnh và command phải nằm trong cùng một message."
+    "Tạo Qeo Story theo 2 cách:\n\n"
+    "- Gửi ảnh screenshot kèm caption `/qeostory [preset]` để render ngay.\n"
+    "- Gửi `/qeostory [preset]`, rồi gửi ảnh trong vòng 1 phút.\n\n"
+    "Ví dụ: `/qeostory`, `/qeostory mango`, `/qeostory qeo-green`."
 )
 
 CMD_RE = re.compile(
@@ -93,15 +97,21 @@ def _reply_metadata(source):
     return {"thread_id": thread_id, "message_thread_id": thread_id}
 
 
-async def _send_text_reply(gateway, source, event, text: str) -> None:
+async def _send_text_to_source(gateway, source, message_id, text: str) -> None:
     adapter = gateway._adapter_for_source(source)
     if adapter is None:
         return
     await adapter.send(
         source.chat_id,
         text,
-        reply_to=getattr(event, "message_id", None),
+        reply_to=message_id,
         metadata=_reply_metadata(source),
+    )
+
+
+async def _send_text_reply(gateway, source, event, text: str) -> None:
+    await _send_text_to_source(
+        gateway, source, getattr(event, "message_id", None), text
     )
 
 
@@ -146,28 +156,77 @@ def _render_story(source, input_path: str, preset: Optional[str]) -> str:
     return str(out_path)
 
 
-def _handle_qeostory_native(event, gateway, **kwargs):
-    text = getattr(event, "text", None) or ""
-    match = CMD_RE.match(text)
-    if not match:
-        return None
-
-    source = getattr(event, "source", None)
-    if source is None:
-        return None
-    image_path = _extract_local_image_path(event)
-    if not image_path:
-        return None
-
-    preset = _extract_preset(match.group("args") or "")
+def _dispatch_story(event, gateway, source, image_path: str, preset: Optional[str]):
     try:
         output_path = _render_story(source, image_path, preset)
     except Exception as exc:
-        _schedule(_send_text_reply(gateway, source, event, f"❌ Render thất bại: {str(exc)[:1500]}"))
+        _schedule(
+            _send_text_reply(
+                gateway, source, event, f"❌ Render thất bại: {str(exc)[:1500]}"
+            )
+        )
         return {"action": "skip", "reason": "qeostory-render-failed"}
 
     _schedule(_send_image_reply(gateway, source, event, output_path))
     return {"action": "skip", "reason": "qeostory-rendered"}
+
+
+def _handle_qeostory_native(event, gateway, **kwargs):
+    text = getattr(event, "text", None) or ""
+    source = getattr(event, "source", None)
+    if source is None:
+        return None
+
+    match = CMD_RE.match(text)
+    if match:
+        key = interaction_key(source)
+        if key is not None:
+            INTERACTIONS.clear(key)
+
+        preset = _extract_preset(match.group("args") or "")
+        image_path = _extract_local_image_path(event)
+        if image_path:
+            return _dispatch_story(event, gateway, source, image_path, preset)
+
+        if key is None:
+            return None
+
+        async def on_expire(pending):
+            await _send_text_to_source(
+                gateway, pending.source, pending.message_id, EXPIRED_TEXT
+            )
+
+        INTERACTIONS.start(
+            key,
+            kind="story_image",
+            payload={"preset": preset},
+            source=source,
+            message_id=getattr(event, "message_id", None),
+            on_expire=on_expire,
+        )
+        _schedule(_send_text_reply(gateway, source, event, PROMPT_TEXT))
+        return {"action": "skip", "reason": "qeostory-awaiting-image"}
+
+    key = interaction_key(source)
+    if key is None:
+        return None
+    pending = INTERACTIONS.peek(key)
+    if pending is None or pending.kind != "story_image":
+        return None
+    if is_slash_command(text):
+        return None
+
+    image_path = _extract_local_image_path(event)
+    if not image_path:
+        _schedule(_send_text_reply(gateway, source, event, INVALID_TEXT))
+        return {"action": "skip", "reason": "qeostory-invalid-followup"}
+
+    pending = INTERACTIONS.take(key, "story_image")
+    if pending is None:
+        return None
+    return _dispatch_story(
+        event, gateway, source, image_path, pending.payload.get("preset")
+    )
 
 
 def register_story(ctx) -> None:

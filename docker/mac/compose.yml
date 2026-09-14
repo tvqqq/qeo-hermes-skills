@@ -1,0 +1,26 @@
+name: qeo-mac
+
+services:
+  qeo-voice-worker:
+    platform: linux/arm64
+    build:
+      context: ../..
+      dockerfile: workers/qeo-voice/Dockerfile
+    restart: unless-stopped
+    environment:
+      - QEO_VOICE_TOKEN=${QEO_VOICE_TOKEN:?QEO_VOICE_TOKEN is required}
+      - QEO_VOICE_ASSET_ROOT=/data/voices
+      - QEO_VOICE_BIND_HOST=0.0.0.0
+      - QEO_VOICE_PORT=8765
+      - HF_HOME=/cache/huggingface
+    ports:
+      - "127.0.0.1:${QEO_VOICE_PORT:-8765}:8765"
+    volumes:
+      - "${QEO_MAC_DATA_ROOT}/voices:/data/voices:ro"
+      - "${QEO_MAC_DATA_ROOT}/cache:/cache"
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 300s

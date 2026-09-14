@@ -1,0 +1,20 @@
+{
+  "default": "chi-chi",
+  "voices": {
+    "chi-chi": {
+      "display_name": "Chi Chi",
+      "engine": "v3turbo",
+      "profile": "tight-denoised",
+      "reference": "chi-chi/reference.wav",
+      "denoise": true,
+      "use_ref_codes": true,
+      "temperature": 0.55,
+      "top_k": 20,
+      "top_p": 0.90,
+      "repetition_penalty": 1.20,
+      "max_chars": 140,
+      "silence_p": 0.10,
+      "crossfade_p": 0.0
+    }
+  }
+}

@@ -80,13 +80,18 @@ Use `--no-restart` only when you intentionally want to defer the gateway restart
 
 Turns a local PNG/JPEG/WebP screenshot into a deterministic 1080×1920 story PNG with the approved Qeo layout and `@QeoQeo` footer.
 
-Telegram fast path:
+Telegram supports both immediate and conversational forms:
 
 ```text
-image + /qeostory [preset]
+image + /qeostory [preset]   -> render immediately
+/qeostory [preset]           -> ask for an image, valid for 60 seconds
 ```
 
-`qeo-shortcuts` handles this directly in the gateway, so it does not depend on an LLM turn or terminal/code tools in the routed Hermes profile.
+`qeo-shortcuts` handles both flows directly in the gateway, so they do not depend on an LLM turn or terminal/code tools in the routed Hermes profile.
+
+### `qeo-voice`
+
+Uses the Mac mini Docker worker as the sole VieNeu compute host. `/qeovoice "text"` and `/qeovoice text` synthesize immediately; bare `/qeovoice` asks for text and accepts the same user's follow-up for 60 seconds. Multiline text is preserved. Successful synthesis is returned as OGG/Opus and sent as a native Telegram voice bubble. UpCloud only routes requests and never falls back to another TTS engine.
 
 ## Deployment summary
 
