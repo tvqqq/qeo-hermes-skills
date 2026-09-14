@@ -125,7 +125,7 @@ if [[ -n "${QEO_VERIFY_COMMAND:-}" ]]; then
   sh -c "$QEO_VERIFY_COMMAND"
   VERIFY_STATUS=$?
 else
-  "$SCRIPT_DIR/verify.sh" --hermes-home "$HERMES_HOME_VALUE" --profiles "$PROFILES"
+  "$SCRIPT_DIR/verify.sh" --hermes-home "$HERMES_HOME_VALUE" --profiles "$PROFILES" --skill "$SKILL"
   VERIFY_STATUS=$?
 fi
 set -e

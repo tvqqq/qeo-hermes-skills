@@ -24,6 +24,7 @@ Telegram-facing shortcuts remove hyphens after the `qeo` prefix:
 
 ```text
 qeo-story       -> /qeostory
+qeo-voice       -> /qeovoice
 qeo-stock-chart -> /qeostockchart
 ```
 
@@ -71,3 +72,7 @@ Telegram image + /qeostory [preset]
 ```
 
 The skill identity remains `qeo-story`; the shortcut does not rename the skill.
+
+## `qeo-voice` example
+
+`qeo-voice` maps to `/qeovoice`. The gateway sends text to the authenticated Mac mini worker and returns OGG/Opus as a native Telegram voice bubble. The shortcut has no hyphen and has no server-side TTS fallback.

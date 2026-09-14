@@ -105,10 +105,10 @@ Adding a future local worker should mean adding one worker directory, one Docker
 
 ## Mac Filesystem Contract
 
-Private runtime state stays outside the Git checkout:
+Private runtime state lives under the canonical local checkout in a Git-ignored `.local/` directory:
 
 ```text
-~/Library/Application Support/QeoSkills/
+<repo>/.local/qeo-mac/
 ├── voices/
 │   └── chi-chi/
 │       └── reference.wav

@@ -147,3 +147,32 @@ class QeoMacDockerWrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         calls = self.log.read_text(encoding="utf-8")
         self.assertIn(" ps", calls)
+
+
+class QeoMacRuntimePathTests(unittest.TestCase):
+    def test_repo_ignores_local_runtime_state(self):
+        text = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".local/", text)
+
+    def test_mac_scripts_default_to_canonical_repo_local_runtime(self):
+        for name in ("mac-up.sh", "mac-down.sh", "mac-status.sh"):
+            text = (SCRIPTS / name).read_text(encoding="utf-8")
+            self.assertIn("rev-parse --path-format=absolute --git-common-dir", text, name)
+            self.assertIn(".local/qeo-mac/config/mac.env", text, name)
+            self.assertNotIn("Library/Application Support/QeoSkills", text, name)
+
+    def test_env_example_uses_repo_local_data_root(self):
+        text = ENV_EXAMPLE.read_text(encoding="utf-8")
+        self.assertIn("/_www/qeo-hermes-skills/.local/qeo-mac", text)
+        self.assertNotIn("Library/Application Support/QeoSkills", text)
+
+    def test_docs_use_repo_local_runtime_path(self):
+        docs = (
+            ROOT / "docs" / "QEO-VOICE.md",
+            ROOT / "docs" / "superpowers" / "specs" / "2026-09-14-qeo-mac-docker-runtime-design.md",
+            ROOT / "docs" / "superpowers" / "plans" / "2026-09-14-qeo-mac-docker-runtime.md",
+        )
+        for path in docs:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(".local/qeo-mac", text, path.name)
+            self.assertNotIn("Library/Application Support/QeoSkills", text, path.name)

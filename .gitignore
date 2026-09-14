@@ -1,3 +1,4 @@
+.local/
 .worktrees/
 workers/qeo-voice/.venv/
 workers/qeo-voice/.env

@@ -4,7 +4,7 @@
 
 **Goal:** Package every Mac-local Qeo worker in Docker Compose, starting with `qeo-voice-worker`, while keeping UpCloud Hermes native and preserving the hard no-fallback voice contract.
 
-**Architecture:** Mac-local application workers run as one-container-per-worker services in `docker/mac/compose.yml`. `qeo-voice-worker` publishes only to macOS loopback, host-native Tailscale Serve proxies that loopback endpoint to the tailnet, and UpCloud continues to run Hermes skills/plugins natively. Private assets, model caches, and secrets remain outside Git.
+**Architecture:** Mac-local application workers run as one-container-per-worker services in `docker/mac/compose.yml`. `qeo-voice-worker` publishes only to macOS loopback, host-native Tailscale Serve proxies that loopback endpoint to the tailnet, and UpCloud continues to run Hermes skills/plugins natively. Private assets, model caches, and secrets live under the Git-ignored `<repo>/.local/qeo-mac` runtime tree.
 
 **Tech Stack:** Docker Desktop, Docker Compose, Linux ARM64, Python 3.12, VieNeu 3.6.4, ffmpeg/libopus, FastAPI/Uvicorn, Tailscale Serve, Bash, Python `unittest`.
 
@@ -32,9 +32,9 @@
 - `workers/qeo-voice/healthcheck.py` — authenticated in-container `/health` probe using stdlib only.
 - `docker/mac/compose.yml` — canonical Mac-local Compose stack.
 - `docker/mac/.env.example` — safe variable names/placeholders only.
-- `scripts/mac-up.sh` — validate Mac prerequisites/config, build/start Compose, wait healthy, reconcile Tailscale Serve.
+- `scripts/mac-up.sh` — validate Mac prerequisites/config, build/start Compose, and wait healthy.
 - `scripts/mac-down.sh` — intentionally stop Mac Compose services without deleting private state.
-- `scripts/mac-status.sh` — show Compose health plus Tailscale Serve status.
+- `scripts/mac-status.sh` — show Compose health. Tailscale Serve remains a separate one-time host-network configuration.
 - `scripts/verify.sh` — add Docker/qeo-voice static verification while preserving native UpCloud checks.
 - `docs/QEO-VOICE.md` — current Docker/Tailscale/operations guide.
 - `README.md`, `docs/DEPLOYMENT.md`, `docs/TELEGRAM-COMMANDS.md` — document current runtime and command mapping.
@@ -100,7 +100,7 @@ git commit -m "feat: package qeo voice worker for Mac Docker"
 
 ---
 
-### Task 2: Add Mac Compose Operations and Tailscale Serve Reconciliation
+### Task 2: Add Mac Compose Operations
 
 **Files:**
 - Create: `scripts/mac-up.sh`
@@ -109,15 +109,16 @@ git commit -m "feat: package qeo voice worker for Mac Docker"
 - Modify: `tests/test_qeo_mac_docker.py`
 
 **Interfaces:**
-- Default private config: `$HOME/Library/Application Support/QeoSkills/config/mac.env`.
+- Default private config: `<canonical-repo>/.local/qeo-mac/config/mac.env`.
+- Default data root: `<canonical-repo>/.local/qeo-mac`; linked worktrees resolve the canonical checkout through Git common-dir metadata.
 - Optional override: `QEO_MAC_ENV_FILE`.
 - `mac-up.sh` delegates to `docker compose --env-file <file> -f docker/mac/compose.yml up -d --build`.
 - `mac-down.sh` delegates to `docker compose ... stop` rather than deleting volumes/private state.
-- `mac-status.sh` runs Compose `ps` and `tailscale serve status`.
+- `mac-status.sh` runs Compose `ps`. Tailscale Serve is configured separately on the macOS host.
 
 - [ ] **Step 1: Add failing wrapper behavior tests**
 
-Use temporary fake `docker` and `tailscale` executables placed first in `PATH`. Assert `mac-up.sh` rejects missing config/token/data root, calls Compose with the approved file/env, waits until `qeo-voice-worker` is healthy, then calls `tailscale serve --bg --http=8765 127.0.0.1:8765`. Assert `mac-down.sh` uses `stop` and never `down -v`; assert `mac-status.sh` queries both systems.
+Use a temporary fake `docker` executable placed first in `PATH`. Assert `mac-up.sh` rejects missing config/token/reference audio, calls Compose with the approved file/env, and waits until `qeo-voice-worker` is healthy. Assert `mac-down.sh` uses `stop` and never `down -v`; assert `mac-status.sh` queries Compose.
 
 - [ ] **Step 2: Run RED**
 
@@ -126,9 +127,9 @@ Expected: FAIL because Mac wrapper scripts are absent.
 
 - [ ] **Step 3: Implement thin wrappers**
 
-All scripts use `set -euo pipefail`, resolve repository root relative to the script, require Darwin for Mac operations, require Docker and Tailscale binaries, validate the private config exists without echoing its contents, and delegate rather than duplicating Compose configuration.
+All scripts use `set -euo pipefail`, resolve the current worktree plus canonical checkout, require Darwin for Mac operations, require Docker, validate the private config exists without echoing its contents, and delegate rather than duplicating Compose configuration.
 
-`mac-up.sh` should poll `docker compose ps --format json` or `docker inspect` for container health with a bounded timeout, then reconcile Tailscale Serve. Do not use Funnel.
+`mac-up.sh` polls `docker compose ps --format json` for container health with a bounded timeout. Tailscale Serve remains a separate one-time host-network configuration; do not use Funnel.
 
 - [ ] **Step 4: Run GREEN and shell validation**
 
@@ -200,9 +201,9 @@ git commit -m "docs: document qeo voice Docker runtime"
 ### Task 4: Build and Smoke-Test the Real Mac Container
 
 **Files/State:**
-- Private voice asset: `~/Library/Application Support/QeoSkills/voices/chi-chi/reference.wav`.
-- Private config: `~/Library/Application Support/QeoSkills/config/mac.env`.
-- Persistent cache: `~/Library/Application Support/QeoSkills/cache/`.
+- Private voice asset: `<repo>/.local/qeo-mac/voices/chi-chi/reference.wav`.
+- Private config: `<repo>/.local/qeo-mac/config/mac.env`.
+- Persistent cache: `<repo>/.local/qeo-mac/cache/`.
 - Runtime service: `qeo-voice-worker`.
 
 - [ ] Prepare the private directory tree and config outside Git.

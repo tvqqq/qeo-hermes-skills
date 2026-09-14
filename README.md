@@ -88,6 +88,10 @@ image + /qeostory [preset]
 
 `qeo-shortcuts` handles this directly in the gateway, so it does not depend on an LLM turn or terminal/code tools in the routed Hermes profile.
 
+### `qeo-voice`
+
+Uses the Mac mini Docker worker as the sole VieNeu compute host and exposes the Telegram shortcut `/qeovoice <text>`. Successful synthesis is returned as OGG/Opus and sent as a native Telegram voice bubble. UpCloud only routes requests and never falls back to another TTS engine.
+
 ## Deployment summary
 
 A normal deploy validates source, creates a timestamped backup, stages replacements, updates the default and selected multiplex profiles, deploys shared plugin code, verifies runtime state, restarts the gateway once, and rolls back affected Qeo targets if validation fails.

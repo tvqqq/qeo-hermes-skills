@@ -75,6 +75,8 @@ python3 -m unittest discover -s tests -v
 
 Only deploy after both succeed.
 
+For `qeo-voice`, production deployment installs only the Hermes skill and shared `qeo-shortcuts` connector on UpCloud. VieNeu remains on the Mac mini Docker worker. Configure `QEO_VOICE_WORKER_URL`, `QEO_VOICE_TOKEN`, and `QEO_VOICE_TIMEOUT_SECONDS` in the Hermes runtime environment before restarting the gateway. Smoke `/qeovoice` after deploy; no failure path may invoke server-side TTS.
+
 ## Backup and rollback
 
 Each deployment creates one timestamped backup directory below:
