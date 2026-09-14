@@ -1,6 +1,6 @@
 # Qeo Voice
 
-`qeo-voice` provides the Telegram command `/qeovoice <text>` using a Mac mini as the only voice-compute host.
+`qeo-voice` provides the Telegram command `/qeovoice "text"` using a Mac mini as the only voice-compute host. The quoted form is preferred; unquoted text remains backward-compatible.
 
 ## Runtime boundary
 
@@ -123,16 +123,23 @@ Normal UpCloud deployment copies `skills/qeo-voice` and the shared `qeo-shortcut
 
 ## Telegram behavior
 
-Usage:
+Preferred usage, especially for multiline text:
 
 ```text
-/qeovoice <text>
+/qeovoice "Dòng một
+Dòng hai"
+```
+
+The handler removes only the outer quote pair and preserves embedded newlines. The legacy unquoted form remains supported:
+
+```text
+/qeovoice Xin chào anh Qeo
 ```
 
 Empty input:
 
 ```text
-Usage: /qeovoice <text>
+Usage: /qeovoice "text"
 ```
 
 Worker offline/network timeout:

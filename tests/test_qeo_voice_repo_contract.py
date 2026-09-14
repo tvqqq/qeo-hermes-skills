@@ -44,6 +44,15 @@ class QeoVoiceRepositoryContractTests(unittest.TestCase):
         self.assertIn("QEO_VOICE_WORKER_URL", voice_doc)
         self.assertIn("QEO_VOICE_TOKEN", voice_doc)
 
+    def test_docs_define_qeovoice_multiline_and_menu_priority(self):
+        commands = COMMANDS.read_text(encoding="utf-8")
+        voice_doc = VOICE_DOC.read_text(encoding="utf-8")
+        self.assertIn('/qeovoice "text"', voice_doc)
+        self.assertIn("multiline", voice_doc.lower())
+        self.assertIn("command menu", commands.lower())
+        self.assertIn("qeostory", commands)
+        self.assertIn("qeovoice", commands)
+
     def test_repo_only_verification_passes(self):
         result = subprocess.run(
             [str(VERIFY), "--repo-only"], cwd=ROOT,

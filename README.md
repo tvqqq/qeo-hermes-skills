@@ -90,7 +90,7 @@ image + /qeostory [preset]
 
 ### `qeo-voice`
 
-Uses the Mac mini Docker worker as the sole VieNeu compute host and exposes the Telegram shortcut `/qeovoice <text>`. Successful synthesis is returned as OGG/Opus and sent as a native Telegram voice bubble. UpCloud only routes requests and never falls back to another TTS engine.
+Uses the Mac mini Docker worker as the sole VieNeu compute host and exposes the Telegram shortcut `/qeovoice "text"`, including multiline quoted text while preserving the legacy unquoted form. Successful synthesis is returned as OGG/Opus and sent as a native Telegram voice bubble. UpCloud only routes requests and never falls back to another TTS engine.
 
 ## Deployment summary
 

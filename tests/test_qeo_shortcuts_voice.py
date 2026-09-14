@@ -81,6 +81,27 @@ class QeoVoiceShortcutTests(unittest.TestCase):
         self.assertEqual(result, {"action": "skip", "reason": "qeovoice-dispatched"})
         self.assertEqual(len(scheduled), 1)
 
+    def test_quoted_multiline_text_strips_outer_quotes_and_preserves_newlines(self):
+        event = self.event('/qeovoice "Dòng một\nDòng hai"')
+        process = mock.Mock()
+        with mock.patch.object(self.voice, "_schedule"), \
+             mock.patch.object(self.voice, "_process_qeovoice", new=process):
+            result = self.voice._handle_qeovoice_native(event, object())
+        self.assertEqual(result, {"action": "skip", "reason": "qeovoice-dispatched"})
+        process.assert_called_once_with(event, mock.ANY, "Dòng một\nDòng hai")
+
+    def test_unquoted_multiline_text_remains_backward_compatible(self):
+        event = self.event('/qeovoice Dòng một\nDòng hai')
+        process = mock.Mock()
+        with mock.patch.object(self.voice, "_schedule"), \
+             mock.patch.object(self.voice, "_process_qeovoice", new=process):
+            result = self.voice._handle_qeovoice_native(event, object())
+        self.assertEqual(result, {"action": "skip", "reason": "qeovoice-dispatched"})
+        process.assert_called_once_with(event, mock.ANY, "Dòng một\nDòng hai")
+
+    def test_usage_recommends_quoted_text_form(self):
+        self.assertEqual(self.voice.USAGE_TEXT, 'Usage: /qeovoice "text"')
+
     def test_empty_text_sends_usage_and_skips_llm(self):
         scheduled = []
         def capture(coro):

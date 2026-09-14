@@ -36,6 +36,8 @@ Rules:
 - keep names short and predictable;
 - avoid aliases unless compatibility requires one.
 
+Telegram's visible command menu is capped by Hermes. Production command-menu priority must keep both `qeostory` and `qeovoice` ahead of lower-priority dynamic commands so both shortcuts are suggested while typing `/`.
+
 ## Not every skill needs a Telegram shortcut
 
 Normal agent skills can rely on Hermes skill discovery and natural-language invocation. Add a compact Telegram shortcut only when it materially improves a chat workflow.
@@ -75,4 +77,4 @@ The skill identity remains `qeo-story`; the shortcut does not rename the skill.
 
 ## `qeo-voice` example
 
-`qeo-voice` maps to `/qeovoice`. The gateway sends text to the authenticated Mac mini worker and returns OGG/Opus as a native Telegram voice bubble. The shortcut has no hyphen and has no server-side TTS fallback.
+`qeo-voice` maps to `/qeovoice`. Prefer `/qeovoice "text"`; quoted input may span multiple lines and preserves embedded newlines, while unquoted input remains compatible. The gateway sends text to the authenticated Mac mini worker and returns OGG/Opus as a native Telegram voice bubble. The shortcut has no hyphen and has no server-side TTS fallback.

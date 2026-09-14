@@ -12,7 +12,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-USAGE_TEXT = "Usage: /qeovoice <text>"
+USAGE_TEXT = 'Usage: /qeovoice "text"'
 OFFLINE_TEXT = "⚠️ Qeo Voice unavailable — Mac mini voice worker is offline."
 BUSY_TEXT = "⚠️ Qeo Voice is busy. Please try again in a moment."
 FAILED_TEXT = "⚠️ Qeo Voice failed to generate audio. Please try again."
@@ -20,7 +20,7 @@ MAX_AUDIO_BYTES = 20 * 1024 * 1024
 
 CMD_RE = re.compile(
     r"^\s*/qeovoice(?:@\w+)?(?:\s+(?P<args>.*))?\s*$",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -175,7 +175,9 @@ def _handle_qeovoice_native(event, gateway, **kwargs):
         return None
 
     speech = (match.group("args") or "").strip()
-    if not speech:
+    if len(speech) >= 2 and speech.startswith('"') and speech.endswith('"'):
+        speech = speech[1:-1]
+    if not speech.strip():
         _schedule(_send_text_reply(gateway, source, event, USAGE_TEXT))
         return {"action": "skip", "reason": "qeovoice-usage"}
 

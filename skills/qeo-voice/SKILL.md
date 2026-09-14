@@ -18,8 +18,10 @@ Generate Vietnamese speech with the Qeo Voice worker.
 The Telegram shortcut is:
 
 ```text
-/qeovoice <text>
+/qeovoice "text"
 ```
+
+Quoted input is preferred and may span multiple lines; the handler preserves embedded newlines. Unquoted input remains backward-compatible.
 
 The default registered voice is **Chi Chi** using the `tight-denoised` profile.
 
