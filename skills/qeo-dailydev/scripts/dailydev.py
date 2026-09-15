@@ -136,7 +136,7 @@ def score_post(post: dict, now: datetime) -> float:
 
 
 def resolve_state_dir(env: Mapping[str, str] | None = None) -> Path:
-    values = env or os.environ
+    values = os.environ if env is None else env
     configured = values.get("QEO_DAILYDEV_STATE_DIR")
     if configured:
         return Path(configured).expanduser()
