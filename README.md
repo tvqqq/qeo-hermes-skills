@@ -93,6 +93,10 @@ image + /qeostory [preset]   -> render immediately
 
 Uses the Mac mini Docker worker as the sole VieNeu compute host. `/qeovoice "text"` and `/qeovoice text` synthesize immediately; bare `/qeovoice` asks for text and accepts the same user's follow-up for 60 seconds. Multiline text is preserved. Successful synthesis is returned as OGG/Opus and sent as a native Telegram voice bubble. UpCloud only routes requests and never falls back to another TTS engine.
 
+### `qeo-dailydev`
+
+Builds a 07:00 VNT Software Lab briefing from the daily.dev `For You` feed plus curated engineering queries, then keeps the latest article ordering as lightweight state so follow-up questions such as `đào sâu bài #3` are deterministic. The Software Lab Telegram forum topic can auto-load the skill for keyword/semantic daily.dev research. v1 intentionally has no compact Telegram slash command.
+
 ## Deployment summary
 
 A normal deploy validates source, creates a timestamped backup, stages replacements, updates the default and selected multiplex profiles, deploys shared plugin code, verifies runtime state, restarts the gateway once, and rolls back affected Qeo targets if validation fails.
@@ -109,4 +113,5 @@ The deployment scripts never intentionally modify unrelated Hermes skills, plugi
 - [`docs/ADDING-A-QEO-SKILL.md`](docs/ADDING-A-QEO-SKILL.md) — create a new Qeo skill.
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment, profiles, verification, and rollback.
 - [`docs/TELEGRAM-COMMANDS.md`](docs/TELEGRAM-COMMANDS.md) — canonical Hermes commands and compact Telegram shortcuts.
+- [`docs/QEO-DAILYDEV.md`](docs/QEO-DAILYDEV.md) — configure daily.dev, Software Lab topic binding, cron delivery, and Q&A smoke tests.
 - [`docs/superpowers/specs/2026-09-13-qeo-hermes-skills-repository-design.md`](docs/superpowers/specs/2026-09-13-qeo-hermes-skills-repository-design.md) — approved repository design.
