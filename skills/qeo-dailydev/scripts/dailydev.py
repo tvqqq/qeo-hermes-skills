@@ -217,6 +217,10 @@ def collect_candidates(
     try:
         for rank, raw in enumerate(_response_data(client.get_for_you(limit=20)), 1):
             records.append(normalize_post(raw, "for_you", rank))
+    except DailyDevError as exc:
+        if exc.status == 401:
+            raise
+        diagnostics["failed_sources"].append("for_you")
     except Exception:
         diagnostics["failed_sources"].append("for_you")
 
@@ -236,6 +240,10 @@ def collect_candidates(
                 )
                 for rank, raw in enumerate(monthly, 1):
                     records.append(normalize_post(raw, cluster_id, rank))
+        except DailyDevError as exc:
+            if exc.status == 401:
+                raise
+            diagnostics["failed_sources"].append(cluster_id)
         except Exception:
             diagnostics["failed_sources"].append(cluster_id)
 
