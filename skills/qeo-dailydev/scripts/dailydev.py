@@ -218,7 +218,7 @@ def collect_candidates(
         for rank, raw in enumerate(_response_data(client.get_for_you(limit=20)), 1):
             records.append(normalize_post(raw, "for_you", rank))
     except DailyDevError as exc:
-        if exc.status == 401:
+        if exc.status in (401, 403):
             raise
         diagnostics["failed_sources"].append("for_you")
     except Exception:
@@ -241,11 +241,14 @@ def collect_candidates(
                 for rank, raw in enumerate(monthly, 1):
                     records.append(normalize_post(raw, cluster_id, rank))
         except DailyDevError as exc:
-            if exc.status == 401:
+            if exc.status in (401, 403):
                 raise
             diagnostics["failed_sources"].append(cluster_id)
         except Exception:
             diagnostics["failed_sources"].append(cluster_id)
+
+    if not records and len(diagnostics["failed_sources"]) == 1 + len(clusters):
+        raise DailyDevError("daily.dev candidate collection failed")
 
     candidates = [
         post for post in merge_posts(records) if post.get("id") not in history
