@@ -23,15 +23,19 @@ info() { echo "verify: $*"; }
 
 STORY_SKILL="$REPO_ROOT/skills/qeo-story"
 VOICE_SKILL="$REPO_ROOT/skills/qeo-voice"
+DAILYDEV_SKILL="$REPO_ROOT/skills/qeo-dailydev"
 VOICE_WORKER="$REPO_ROOT/workers/qeo-voice"
 PLUGIN="$REPO_ROOT/plugins/qeo-shortcuts"
 [[ -f "$STORY_SKILL/SKILL.md" ]] || fail "missing qeo-story/SKILL.md"
 [[ -f "$VOICE_SKILL/SKILL.md" ]] || fail "missing qeo-voice/SKILL.md"
+[[ -f "$DAILYDEV_SKILL/SKILL.md" ]] || fail "missing qeo-dailydev/SKILL.md"
+[[ -f "$DAILYDEV_SKILL/references/topics.json" ]] || fail "missing qeo-dailydev topics.json"
 [[ -f "$VOICE_WORKER/voices.json" ]] || fail "missing qeo-voice voices.json"
 [[ -f "$PLUGIN/plugin.yaml" ]] || fail "missing qeo-shortcuts/plugin.yaml"
 
 grep -Eq '^name:[[:space:]]+qeo-story[[:space:]]*$' "$STORY_SKILL/SKILL.md" || fail "qeo-story frontmatter name mismatch"
 grep -Eq '^name:[[:space:]]+qeo-voice[[:space:]]*$' "$VOICE_SKILL/SKILL.md" || fail "qeo-voice frontmatter name mismatch"
+grep -Eq '^name:[[:space:]]+qeo-dailydev[[:space:]]*$' "$DAILYDEV_SKILL/SKILL.md" || fail "qeo-dailydev frontmatter name mismatch"
 grep -Eq '^[[:space:]]*name:[[:space:]]+qeo-shortcuts[[:space:]]*$' "$PLUGIN/plugin.yaml" || fail "qeo-shortcuts manifest name mismatch"
 
 PYTHON_BIN="${QEO_VERIFY_PYTHON:-python3}"
@@ -39,6 +43,8 @@ PYTHON_BIN="${QEO_VERIFY_PYTHON:-python3}"
   "$STORY_SKILL/scripts/image_utils.py" \
   "$STORY_SKILL/scripts/presets.py" \
   "$STORY_SKILL/scripts/render_story.py" \
+  "$DAILYDEV_SKILL/scripts/dailydev_client.py" \
+  "$DAILYDEV_SKILL/scripts/dailydev.py" \
   "$PLUGIN/__init__.py" \
   "$PLUGIN/handlers/story.py" \
   "$PLUGIN/handlers/voice.py" \
@@ -50,6 +56,19 @@ PYTHON_BIN="${QEO_VERIFY_PYTHON:-python3}"
 grep -qi '^Pillow' "$STORY_SKILL/requirements.txt" || fail "qeo-story requirements must declare Pillow"
 grep -q '"qeostory"' "$PLUGIN/handlers/story.py" || fail "qeostory command registration not found"
 grep -q '"qeovoice"' "$PLUGIN/handlers/voice.py" || fail "qeovoice command registration not found"
+"$PYTHON_BIN" - "$DAILYDEV_SKILL/references/topics.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+clusters = data.get("clusters", [])
+assert len(clusters) == 6, "qeo-dailydev must define exactly six topic clusters"
+ids = [item.get("id") for item in clusters]
+assert len(set(ids)) == 6 and all(ids), "qeo-dailydev topic IDs must be unique and non-empty"
+assert all(item.get("query") for item in clusters), "qeo-dailydev topic queries must be non-empty"
+PY
 "$PYTHON_BIN" - "$VOICE_WORKER/voices.json" <<'PY'
 import json
 import sys
@@ -103,6 +122,7 @@ if [[ -n "$VERIFY_SKILL" ]]; then
 else
   verify_runtime_skill qeo-story
   verify_runtime_skill qeo-voice
+  verify_runtime_skill qeo-dailydev
 fi
 HERMES_BIN_VALUE="${HERMES_BIN:-}"
 if [[ -z "$HERMES_BIN_VALUE" && -x /opt/hermes/.local/bin/hermes ]]; then
