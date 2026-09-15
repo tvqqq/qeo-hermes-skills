@@ -1,0 +1,28 @@
+{
+  "clusters": [
+    {
+      "id": "ai-coding-agents",
+      "query": "AI coding agents agentic software engineering RAG MCP tool calling LLM application engineering"
+    },
+    {
+      "id": "web-app-engineering",
+      "query": "Next.js React TypeScript frontend architecture web performance"
+    },
+    {
+      "id": "backend-data",
+      "query": "backend APIs Postgres Supabase database architecture queues background jobs"
+    },
+    {
+      "id": "infra-self-hosting",
+      "query": "Docker containers self-hosting Cloudflare edge serverless low-cost infrastructure"
+    },
+    {
+      "id": "automation-devtools",
+      "query": "n8n developer tooling CI/CD automation open source tooling"
+    },
+    {
+      "id": "solo-product-engineering",
+      "query": "solo developer product engineering indie bootstrapped software maintainable architecture"
+    }
+  ]
+}
