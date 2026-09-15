@@ -334,6 +334,34 @@ class DailyDevCoreTests(unittest.TestCase):
         with self.assertRaises(error_type):
             self.core.collect_candidates(Client(), [], {}, now)
 
+    def test_collect_candidates_propagates_access_denied(self):
+        now = datetime(2026, 9, 15, 0, 0, tzinfo=timezone.utc)
+        error_type = self.core.DailyDevError
+
+        class Client:
+            def get_for_you(self, limit=20):
+                raise error_type(
+                    "access denied", status=403, endpoint="/feeds/foryou"
+                )
+
+        with self.assertRaises(error_type):
+            self.core.collect_candidates(Client(), [], {}, now)
+
+    def test_collect_candidates_fails_when_every_source_errors(self):
+        now = datetime(2026, 9, 15, 0, 0, tzinfo=timezone.utc)
+
+        class Client:
+            def get_for_you(self, limit=20):
+                raise RuntimeError("offline")
+
+            def recommend_keyword(self, query, limit=8, time_range="week"):
+                raise RuntimeError("offline")
+
+        with self.assertRaises(self.core.DailyDevError):
+            self.core.collect_candidates(
+                Client(), [{"id": "one", "query": "one"}], {}, now
+            )
+
     def test_collect_candidates_uses_hybrid_sources_and_degrades_per_cluster(self):
         now = datetime(2026, 9, 15, 0, 0, tzinfo=timezone.utc)
 
